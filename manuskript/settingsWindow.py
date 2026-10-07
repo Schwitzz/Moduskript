@@ -61,6 +61,14 @@ class settingsWindow(QWidget, Ui_Settings):
         self.lstMenu.setMaximumWidth(140)
         self.lstMenu.setMinimumWidth(140)
 
+        # AI assistant page (added after the icon loop on purpose)
+        from manuskript.ai.settingsPage import AISettingsPage
+        self.lstMenu.addItem(self.tr("AI"))
+        aiItem = self.lstMenu.item(self.lstMenu.count() - 1)
+        aiItem.setSizeHint(QSize(aiItem.sizeHint().width(), 42))
+        aiItem.setTextAlignment(Qt.AlignCenter)
+        self.stack.addWidget(AISettingsPage(self))
+
         lowerKeys = [i.lower() for i in list(QStyleFactory.keys())]
 
         # General

@@ -27,6 +27,7 @@ from manuskript.ui import style
 from manuskript.ui import characterInfoDialog
 from manuskript.ui.about import aboutDialog
 from manuskript.ui.collapsibleDockWidgets import collapsibleDockWidgets
+from manuskript.ai.dock import AIDock
 from manuskript.ui.importers.importer import importerDialog
 from manuskript.ui.exporters.exporter import exporterDialog
 from manuskript.ui.helpLabel import helpLabel
@@ -76,6 +77,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.sessionStartWordCount = 0  # Used to track session targets
         self.history = History()
         self._previousSelectionEmpty = True
+
+        # AI assistant dock: must exist before readSettings (state restore)
+        # and before setupMoreUi (toolbar button).
+        self.dckAI = AIDock(self)
+        self.addDockWidget(Qt.RightDockWidgetArea, self.dckAI)
+        self.dckAI.hide()
 
         self.readSettings()
 
@@ -207,6 +214,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.dckCheatSheet,
             self.dckNavigation,
             self.dckSearch,
+            self.dckAI,
         ]
 
         for d in docks:
@@ -218,7 +226,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 d.setVisible(False)
             else:
                 # Restore the dock's visibility based on stored value
-                d.setVisible(self._dckVisibility[d.objectName()])
+                d.setVisible(self._dckVisibility.get(d.objectName(), False))
 
         # Lock is used only once, at start up. We can remove it
         if "LOCK" in self._dckVisibility:
@@ -1109,6 +1117,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self.dckNavigation.objectName() : True,
                 self.dckCheatSheet.objectName() : False,
                 self.dckSearch.objectName() : False,
+                self.dckAI.objectName() : False,
             }
         self._dckVisibility["LOCK"] = True  # prevent overriding loaded values
 
@@ -1129,6 +1138,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self._toolbarState = ""
 
     def closeEvent(self, event):
+        self.dckAI.shutdown()
         # Specific settings to save before quitting
         settings.lastTab = self.tabMain.currentIndex()
 
