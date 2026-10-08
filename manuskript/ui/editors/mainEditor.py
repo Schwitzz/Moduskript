@@ -13,6 +13,7 @@ from manuskript.functions import AUC, mainWindow, drawProgress, appPath, uiParse
 from manuskript.ui import style
 from manuskript.ui.editors.editorWidget import editorWidget
 from manuskript.ui.editors.fullScreenEditor import fullScreenEditor
+from manuskript.ui.editors.formatBar import FormatBar
 from manuskript.ui.editors.mainEditor_ui import Ui_mainEditor
 
 try:
@@ -70,6 +71,10 @@ class mainEditor(QWidget, Ui_mainEditor):
         self._fullScreen = None
 
         self.mw = mainWindow()
+
+        # Formatting bar above the tabs (paragraph style, font, spacing, ...)
+        self.formatBar = FormatBar(self)
+        self.verticalLayout.insertWidget(0, self.formatBar)
 
         # Connections --------------------------------------------------------
 

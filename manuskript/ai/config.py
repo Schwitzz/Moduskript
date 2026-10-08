@@ -1,6 +1,8 @@
 # --!-- coding: utf8 --!--
 """App-wide AI settings, stored in QSettings (never in the project)."""
 
+import json
+
 from PyQt5.QtCore import QSettings
 from PyQt5.QtWidgets import qApp
 
@@ -89,6 +91,19 @@ class AISettings:
     @staticmethod
     def setModel(provider, v):
         _set(MODEL_NAMES[provider], v.strip())
+
+    @staticmethod
+    def cachedModels(provider):
+        """Last model list fetched for `provider` (shared by dock and settings)."""
+        try:
+            names = json.loads(_get("modelCache" + KEY_NAMES[provider], "[]"))
+        except ValueError:
+            return []
+        return [n for n in names if isinstance(n, str)] if isinstance(names, list) else []
+
+    @staticmethod
+    def setCachedModels(provider, names):
+        _set("modelCache" + KEY_NAMES[provider], json.dumps(list(names)))
 
     @staticmethod
     def contextSize():

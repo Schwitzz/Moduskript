@@ -150,7 +150,7 @@ class AIDock(QDockWidget):
         prov = AISettings.provider()
         self.cmbProvider.setCurrentText(prov)
         self.cmbRole.setCurrentText(AISettings.role())
-        self._fillModels([], AISettings.model(prov))
+        self._fillModels(AISettings.cachedModels(prov), AISettings.model(prov))
 
     def syncFromSettings(self):
         if self.worker is None:
@@ -174,7 +174,7 @@ class AIDock(QDockWidget):
     def _providerPicked(self, _i=None):
         prov = self.cmbProvider.currentText()
         AISettings.setProvider(prov)
-        self._fillModels([], AISettings.model(prov))
+        self._fillModels(AISettings.cachedModels(prov), AISettings.model(prov))
         self.refreshModels()
 
     def _rolePicked(self, _i=None):
@@ -198,6 +198,7 @@ class AIDock(QDockWidget):
     def _modelsDone(self, prov, names):
         if prov != self.cmbProvider.currentText():
             return   # user switched provider meanwhile
+        AISettings.setCachedModels(prov, names)
         self._fillModels(names, self.cmbModel.currentText())
         self.lblStatus.setText(self.tr("%d models found") % len(names))
 

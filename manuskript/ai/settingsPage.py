@@ -20,6 +20,8 @@ class AISettingsPage(QScrollArea):
         self.setWidgetResizable(True)
         self.setFrameShape(QScrollArea.NoFrame)
         self._worker = None
+        self._autoFetched = False
+        self._loading = True
         body = QWidget()
         self.setWidget(body)
         lay = QVBoxLayout(body)
@@ -33,7 +35,6 @@ class AISettingsPage(QScrollArea):
         self.txtKey = QLineEdit()
         self.txtKey.setEchoMode(QLineEdit.Password)
         self.cmbModel = QComboBox()
-        self.cmbModel.setEditable(True)
         self.btnRefresh = QPushButton(self.tr("Refresh models"))
         self.lblInfo = QLabel("")
         self.lblInfo.setWordWrap(True)
@@ -106,11 +107,7 @@ class AISettingsPage(QScrollArea):
     def _loadProviderFields(self, prov):
         """Key and model are remembered per provider."""
         self.txtKey.setText(AISettings.apiKey(prov))
-        self.cmbModel.clear()
-        cur = AISettings.model(prov)
-        if cur:
-            self.cmbModel.addItem(cur)
-        self.cmbModel.setCurrentText(cur)
+        self._fillModels(AISettings.cachedModels(prov), AISettings.model(prov))
         local = prov == P.LOCAL
         for w in (self.lblEndpoint, self.txtEndpoint, self.boxLocal):
             w.setVisible(local)
@@ -120,13 +117,36 @@ class AISettingsPage(QScrollArea):
             "Cloud providers use their official fixed endpoint. Context size, "
             "temperature and thinking are managed by the provider."))
 
+    def _fillModels(self, names, current):
+        """Fill the drop-down with the fetched models (current one kept first)."""
+        items = list(names)
+        if current and current not in items:
+            items.insert(0, current)
+        self.cmbModel.blockSignals(True)
+        self.cmbModel.clear()
+        self.cmbModel.addItems(items)
+        self.cmbModel.setCurrentText(current or "")
+        self.cmbModel.view().setMinimumWidth(
+            max([self.cmbModel.fontMetrics().horizontalAdvance(i) for i in items] + [0]) + 40)
+        self.cmbModel.blockSignals(False)
+
+    def showEvent(self, e):
+        QScrollArea.showEvent(self, e)
+        # Query the server each time the page opens, so the list is current.
+        if not self._loading and not self._autoFetched:
+            self._autoFetched = True
+            self._refresh()
+
+    def hideEvent(self, e):
+        QScrollArea.hideEvent(self, e)
+        self._autoFetched = False
+
     def _connect(self):
         self.cmbProvider.activated.connect(self._providerChanged)
         self.txtEndpoint.editingFinished.connect(
             lambda: AISettings.setEndpoint(self.txtEndpoint.text()))
         self.txtKey.editingFinished.connect(self._keyChanged)
         self.cmbModel.activated.connect(self._modelChanged)
-        self.cmbModel.lineEdit().editingFinished.connect(self._modelChanged)
         self.btnRefresh.clicked.connect(self._refresh)
         self.spnCtx.valueChanged.connect(lambda v: AISettings.setContextSize(v))
         self.spnTemp.valueChanged.connect(lambda v: AISettings.setTemperature(v))
@@ -146,6 +166,7 @@ class AISettingsPage(QScrollArea):
         prov = self.cmbProvider.currentText()
         AISettings.setProvider(prov)
         self._loadProviderFields(prov)
+        self._refresh()
 
     def _keyChanged(self):
         AISettings.setApiKey(self.cmbProvider.currentText(), self.txtKey.text())
@@ -164,6 +185,9 @@ class AISettingsPage(QScrollArea):
         AISettings.setEndpoint(self.txtEndpoint.text())
         if self._worker is not None and self._worker.isRunning():
             return
+        if prov != P.LOCAL and not AISettings.apiKey(prov):
+            self.lblInfo.setText(self.tr("Enter your API key, then click Refresh models."))
+            return
         self.btnRefresh.setEnabled(False)
         self.lblInfo.setText(self.tr("Fetching models..."))
         self._worker = ModelsWorker(prov, AISettings.endpoint(), AISettings.apiKey(prov), self)
@@ -175,10 +199,8 @@ class AISettingsPage(QScrollArea):
     def _refreshDone(self, prov, names):
         if prov != self.cmbProvider.currentText():
             return
-        cur = self.cmbModel.currentText()
-        self.cmbModel.clear()
-        self.cmbModel.addItems(names)
-        self.cmbModel.setCurrentText(cur)
+        AISettings.setCachedModels(prov, names)
+        self._fillModels(names, self.cmbModel.currentText())
         self.lblInfo.setText(self.tr("%d models found.") % len(names))
 
     def _refreshFailed(self, prov, msg):

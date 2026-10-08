@@ -281,7 +281,12 @@ class settingsWindow(QWidget, Ui_Settings):
         self.spnEditorLineSpacing.valueChanged.connect(self.updateEditorSettings)
         self.spnEditorLineSpacing.setEnabled(opt["lineSpacing"] not in [100, 150, 200])
         self.spnEditorLineSpacing.valueChanged.connect(self.updateEditorSettings)
-        self.spnEditorTabWidth.setValue(opt["tabWidth"])
+        self.label_42.setText(self.tr("Tab width:"))
+        self.spnEditorTabWidth.setSuffix(self.tr(" spaces"))
+        self.spnEditorTabWidth.setRange(1, 24)
+        self.spnEditorTabWidth.setToolTip(self.tr(
+            "Width of the Tab key and of the first-line indent, in spaces."))
+        self.spnEditorTabWidth.setValue(opt.get("tabSpaces", 4))
         self.spnEditorTabWidth.valueChanged.connect(self.updateEditorSettings)
         self.chkEditorIndent.setChecked(opt["indent"])
         self.chkEditorIndent.stateChanged.connect(self.updateEditorSettings)
@@ -635,7 +640,7 @@ class settingsWindow(QWidget, Ui_Settings):
             200 if self.cmbEditorLineSpacing.currentIndex() == 2 else \
             self.spnEditorLineSpacing.value()
         self.spnEditorLineSpacing.setEnabled(self.cmbEditorLineSpacing.currentIndex() == 3)
-        settings.textEditor["tabWidth"] = self.spnEditorTabWidth.value()
+        settings.textEditor["tabSpaces"] = self.spnEditorTabWidth.value()
         settings.textEditor["indent"] = True if self.chkEditorIndent.checkState() else False
         settings.textEditor["spacingAbove"] = self.spnEditorParaAbove.value()
         settings.textEditor["spacingBelow"] = self.spnEditorParaBelow.value()
@@ -643,6 +648,11 @@ class settingsWindow(QWidget, Ui_Settings):
         self.timerUpdateWidgets.start()
 
     def updateAllWidgets(self):
+
+        # Keep the formatting bar in step with these settings.
+        bar = getattr(getattr(mainWindow(), "mainEditor", None), "formatBar", None)
+        if bar is not None:
+            bar.refresh()
 
         # Update font and defaultBlockFormat to all textEditView. Drastically.
         for w in mainWindow().findChildren(textEditView, QRegExp(".*")):

@@ -73,7 +73,8 @@ textEditor = {
     "font": qApp.font().toString(),
     "misspelled": "#F00",
     "lineSpacing": 100,
-    "tabWidth": 20,
+    "tabWidth": 20,   # legacy (px), no longer used by the main editor
+    "tabSpaces": 4,   # width of a Tab / first-line indent, in spaces
     "indent": False,
     "spacingAbove": 5,
     "spacingBelow": 5,
@@ -307,6 +308,7 @@ def load(string, fromString=False, protocol=None):
             "backgroundTransparent": False,      # Added in 0.6.0
             "alwaysCenter": False,               # Added in 0.7.0
             "focusMode": False,
+            "tabSpaces": 4,
             }
 
         for k in added:

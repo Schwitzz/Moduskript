@@ -4,7 +4,7 @@ import re, textwrap
 
 from PyQt5.Qt import QApplication
 from PyQt5.QtCore import QTimer, QModelIndex, Qt, QEvent, pyqtSignal, QRegExp, QLocale, QPersistentModelIndex, QMutex
-from PyQt5.QtGui import QTextBlockFormat, QTextCharFormat, QFont, QColor, QIcon, QMouseEvent, QTextCursor
+from PyQt5.QtGui import QTextBlockFormat, QTextCharFormat, QFont, QColor, QIcon, QMouseEvent, QTextCursor, QFontMetricsF
 from PyQt5.QtWidgets import QWidget, QTextEdit, qApp, QAction, QMenu, QToolTip
 
 from manuskript import settings
@@ -234,7 +234,12 @@ class textEditView(QTextEdit):
 
         bf = QTextBlockFormat()
         bf.setLineHeight(opt["lineSpacing"], bf.ProportionalHeight)
-        bf.setTextIndent(opt["tabWidth"] * 1 if opt["indent"] else 0)
+        # One "space" is the width of a space in the editor font, so a Tab
+        # (and the first-line indent) is exactly `tabSpaces` spaces wide.
+        tabPx = max(0, opt.get("tabSpaces", 4)) * QFontMetricsF(f).horizontalAdvance(" ")
+        self.setTabStopDistance(tabPx)
+        self.document().setIndentWidth(tabPx)
+        bf.setTextIndent(tabPx if opt["indent"] else 0)
         bf.setTopMargin(opt["spacingAbove"])
         bf.setBottomMargin(opt["spacingBelow"])
         bf.setAlignment(Qt.AlignLeft if opt["textAlignment"] == 0 else
