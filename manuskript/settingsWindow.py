@@ -67,6 +67,7 @@ class settingsWindow(QWidget, Ui_Settings):
         aiItem = self.lstMenu.item(self.lstMenu.count() - 1)
         aiItem.setSizeHint(QSize(aiItem.sizeHint().width(), 42))
         aiItem.setTextAlignment(Qt.AlignCenter)
+        aiItem.setIcon(QIcon.fromTheme("applications-chat"))
         self.stack.addWidget(AISettingsPage(self))
 
         # Appearance page (colour schemes)
@@ -75,6 +76,7 @@ class settingsWindow(QWidget, Ui_Settings):
         apItem = self.lstMenu.item(self.lstMenu.count() - 1)
         apItem.setSizeHint(QSize(apItem.sizeHint().width(), 42))
         apItem.setTextAlignment(Qt.AlignCenter)
+        apItem.setIcon(QIcon.fromTheme("applications-publishing"))
         self.stack.addWidget(AppearanceSettingsPage(self.mw))
 
         lowerKeys = [i.lower() for i in list(QStyleFactory.keys())]
