@@ -1,30 +1,10 @@
-import importlib.util
-import os
 import re
-import sys
-import types
 
 import pytest
+from manuskript.appearance import colors as C
+from manuskript.appearance import schemes as S
+from manuskript.appearance import stylesheet as SS
 
-_base = os.path.join(os.path.dirname(__file__), "..")
-pkg = types.ModuleType("manuskript.appearance")
-pkg.__path__ = [_base]
-sys.modules.setdefault("manuskript", types.ModuleType("manuskript"))
-sys.modules["manuskript.appearance"] = pkg
-
-
-def _load(name):
-    spec = importlib.util.spec_from_file_location(
-        "manuskript.appearance." + name, os.path.join(_base, name + ".py"))
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-C = _load("colors")
-S = _load("schemes")
-SS = _load("stylesheet")
 
 
 def _balanced(css):
