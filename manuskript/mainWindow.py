@@ -944,6 +944,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self.closeProject()
                 return
 
+            # Colour scheme: make editor/cork colours follow the theme
+            from manuskript.appearance.views import applyToSettings
+            applyToSettings(settings)
+
         self.makeConnections()
 
         # Load settings

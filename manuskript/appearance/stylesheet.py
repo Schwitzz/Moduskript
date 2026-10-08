@@ -64,13 +64,6 @@ QComboBox QAbstractItemView {{ background: {panel}; color: {text};
     border: 1px solid {borderStrong}; selection-background-color: {accent};
     selection-color: {onAccent}; outline: none; }}
 QCheckBox, QRadioButton {{ spacing: 6px; background: transparent; }}
-QCheckBox::indicator, QRadioButton::indicator {{ width: 15px; height: 15px; }}
-QCheckBox::indicator {{ border: 1px solid {borderStrong}; border-radius: 4px;
-    background: {editor}; }}
-QCheckBox::indicator:checked {{ background: {accent}; border-color: {accent}; }}
-QRadioButton::indicator {{ border: 1px solid {borderStrong}; border-radius: 8px;
-    background: {editor}; }}
-QRadioButton::indicator:checked {{ background: {accent}; border-color: {accent}; }}
 QSlider::groove:horizontal {{ height: 4px; background: {border}; border-radius: 2px; }}
 QSlider::sub-page:horizontal {{ background: {accent}; border-radius: 2px; }}
 QSlider::handle:horizontal {{ background: {accent}; width: 14px; height: 14px;

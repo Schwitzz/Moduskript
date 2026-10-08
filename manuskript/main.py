@@ -163,7 +163,10 @@ def prepare(arguments, tests=False):
             # TODO: Why'd it break? Check if tooltips look OK... and if not, make them look OK.
             # app.setStyleSheet("QToolTip { color: #ffffff; background-color: #2a82da; border: 1px solid white; }")
 
-    respectSystemDarkThemeSetting()
+    from manuskript.appearance.config import Appearance
+    from manuskript.appearance.schemes import SYSTEM
+    if Appearance.scheme() == SYSTEM:
+        respectSystemDarkThemeSetting()
 
     # Apply configurable tooltip styling
     from manuskript import settings as manuskript_settings
@@ -177,6 +180,11 @@ def prepare(arguments, tests=False):
         f = qApp.font()
         f.setPointSize(settings.value("appFontSize", type=int))
         app.setFont(f)
+
+    # Colour scheme. Must run before manuskript.ui.style is first imported
+    # (done by MainWindow), because that module reads the palette once.
+    from manuskript.appearance import apply as appearanceApply
+    appearanceApply.apply(app)
 
     # Main window
     from manuskript.mainWindow import MainWindow
