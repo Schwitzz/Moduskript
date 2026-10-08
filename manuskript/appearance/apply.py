@@ -97,3 +97,22 @@ def extraStyleSheet():
         return ""
     family = resolveFont(Appearance.font())
     return stylesheet.build(s, d, Appearance.density(), family, Appearance.fontSize())
+
+
+def iconThemeName():
+    """Icon theme to use: the recoloured copy on dark schemes if enabled."""
+    s, d = Appearance.colours()
+    if s is None or not s.dark or not Appearance.recolourIcons():
+        return "NumixMsk"
+    try:
+        from manuskript.appearance import icons
+        from manuskript.functions import appPath, writablePath
+        stamp = "%s|%s" % (s.window, "v1")
+        icons.build(appPath(os.path.join("icons", "NumixMsk")),
+                    writablePath("icon_cache"), s.window, stamp)
+        from PyQt5.QtGui import QIcon
+        QIcon.setThemeSearchPaths(QIcon.themeSearchPaths() + [writablePath("icon_cache")])
+        return icons.THEME
+    except Exception:
+        LOGGER.exception("Could not build the recoloured icon theme")
+        return "NumixMsk"

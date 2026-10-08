@@ -173,7 +173,8 @@ def prepare(arguments, tests=False):
     manuskript_settings.applyTooltipStyle()
 
     QIcon.setThemeSearchPaths(QIcon.themeSearchPaths() + [appPath("icons")])
-    QIcon.setThemeName("NumixMsk")
+    from manuskript.appearance.apply import iconThemeName
+    QIcon.setThemeName(iconThemeName())
 
     # Font size
     if settings.contains("appFontSize"):

@@ -248,11 +248,23 @@ class AIDock(QDockWidget):
             self.view.insertPlainText(m["content"])
         self.view.moveCursor(QTextCursor.End)
 
+    @staticmethod
+    def _labelColour(isUser):
+        """Accent for the user, success colour for the AI (scheme-aware)."""
+        try:
+            from manuskript.appearance.config import Appearance
+            s, d = Appearance.colours()
+            if s is not None:
+                return d["accent"] if isUser else s.success
+        except Exception:
+            pass
+        return "#4a90d9" if isUser else "#2e9e5b"
+
     def _appendHeader(self, agent):
         """Start a new message block. agent=None means the user."""
         self.view.moveCursor(QTextCursor.End)
         label = self.tr("You") if agent is None else self.tr("%s says") % agent
-        color = "#4a90d9" if agent is None else "#2e9e5b"
+        color = self._labelColour(agent is None)
         if not self.view.document().isEmpty():
             self.view.insertHtml("<br><br>")
         self.view.insertHtml('<b style="color:%s">%s:</b>&nbsp;' % (color, html.escape(label)))
