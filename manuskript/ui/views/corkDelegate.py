@@ -11,6 +11,7 @@ from manuskript.functions import mainWindow
 from manuskript.functions import mixColors
 from manuskript.functions import outlineItemColors
 from manuskript.ui import style as S
+from manuskript.appearance.cardcolors import PAPER, INK, RULE, HOVER
 
 
 class corkDelegate(QStyledItemDelegate):
@@ -53,7 +54,7 @@ class corkDelegate(QStyledItemDelegate):
 
         self.updateRects(option, index)
 
-        bgColor = self.bgColors.get(index, "white")
+        bgColor = self.bgColors.get(index, PAPER().name())
 
         if searchedColumn == Outline.summarySentence or (self.lastPos is not None and self.mainLineRect.contains(self.lastPos)):
             # One line summary
@@ -254,13 +255,13 @@ class corkDelegate(QStyledItemDelegate):
         if settings.viewSettings["Cork"]["Background"] != "Nothing":
             c = colors[settings.viewSettings["Cork"]["Background"]]
             if c == QColor(Qt.transparent):
-                c = QColor(Qt.white)
-            col = mixColors(c, QColor(Qt.white), .2)
+                c = PAPER()
+            col = mixColors(c, PAPER(), .2)
             backgroundColor = col
             p.setBrush(col)
         else:
-            p.setBrush(Qt.white)
-            backgroundColor = QColor(Qt.white)
+            p.setBrush(PAPER())
+            backgroundColor = PAPER()
 
             # Cache background color
         self.bgColors[index] = backgroundColor.name()
@@ -323,20 +324,20 @@ class corkDelegate(QStyledItemDelegate):
         textColor = None
 
         if text:
-            p.setPen(Qt.black)
-            textColor = QColor(Qt.black)
+            p.setPen(INK())
+            textColor = INK()
             if settings.viewSettings["Cork"]["Text"] != "Nothing":
                 col = colors[settings.viewSettings["Cork"]["Text"]]
                 if col == Qt.transparent:
-                    col = Qt.black
+                    col = INK()
 
                 # If title setting is compile, we have to hack the color
                 # Or we won't see anything in some themes
                 if settings.viewSettings["Cork"]["Text"] == "Compile":
                     if item.compile() in [0, "0"]:
-                        col = mixColors(QColor(Qt.black), backgroundColor)
+                        col = mixColors(INK(), backgroundColor)
                     else:
-                        col = Qt.black
+                        col = INK()
                 textColor = col
                 p.setPen(col)
             f = QFont(option.font)
@@ -436,7 +437,7 @@ class corkDelegate(QStyledItemDelegate):
             # Stack
         if item.isFolder() and item.childCount() > 0:
             p.save()
-            p.setBrush(Qt.white)
+            p.setBrush(PAPER())
             for i in reversed(range(3)):
                 p.drawRoundedRect(self.itemRect.adjusted(2 * i, 2 * i, -2 * i, 2 * i), 10, 10)
 
@@ -447,10 +448,10 @@ class corkDelegate(QStyledItemDelegate):
         p.save()
         if settings.viewSettings["Cork"]["Background"] != "Nothing":
             c = colors[settings.viewSettings["Cork"]["Background"]]
-            col = mixColors(c, QColor(Qt.white), .2)
+            col = mixColors(c, PAPER(), .2)
             p.setBrush(col)
         else:
-            p.setBrush(Qt.white)
+            p.setBrush(PAPER())
         pen = p.pen()
         pen.setWidth(2)
         p.setPen(pen)
@@ -492,7 +493,7 @@ class corkDelegate(QStyledItemDelegate):
             r = self.mainLineRect.adjusted(-m, -m, m, int(m / 2))
             p.save()
             p.setPen(Qt.NoPen)
-            p.setBrush(QColor("#EEE"))
+            p.setBrush(RULE())
             p.drawRect(r)
             p.restore()
 
@@ -504,7 +505,7 @@ class corkDelegate(QStyledItemDelegate):
         if settings.viewSettings["Cork"]["Border"] != "Nothing":
             col = colors[settings.viewSettings["Cork"]["Border"]]
             if col == Qt.transparent:
-                col = Qt.black
+                col = INK()
             pen.setColor(col)
         p.setPen(pen)
         p.drawRoundedRect(itemRect, 10, 10)
@@ -532,7 +533,7 @@ class corkDelegate(QStyledItemDelegate):
             if settings.viewSettings["Cork"]["Text"] != "Nothing":
                 col = colors[settings.viewSettings["Cork"]["Text"]]
                 if col == Qt.transparent:
-                    col = Qt.black
+                    col = INK()
                 p.setPen(col)
             f = QFont(option.font)
             # f.setPointSize(f.pointSize() + 1)
@@ -554,7 +555,7 @@ class corkDelegate(QStyledItemDelegate):
         # Lines
         if True:
             p.save()
-            p.setPen(QColor("#EEE"))
+            p.setPen(RULE())
             fm = QFontMetrics(option.font)
             h = fm.lineSpacing()
             l = self.mainTextRect.topLeft() + QPoint(0, h)

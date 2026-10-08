@@ -2,6 +2,7 @@
 # --!-- coding: utf8 --!--
 from PyQt5.QtCore import Qt, QTimer, QRectF
 from PyQt5.QtGui import QBrush, QPen, QFontMetrics, QFontMetricsF, QColor
+from manuskript.appearance.cardcolors import PAPER, INK, RULE, HOVER
 from PyQt5.QtWidgets import QWidget, QGraphicsScene, QGraphicsSimpleTextItem, QMenu, QAction, QGraphicsRectItem, \
     QGraphicsLineItem, QGraphicsEllipseItem
 
@@ -277,27 +278,27 @@ class storylineView(QWidget, Ui_storylineView):
 class OutlineRect(QGraphicsRectItem):
     def __init__(self, x, y, w, h, parent=None, title=None):
         QGraphicsRectItem.__init__(self, x, y, w, h, parent)
-        self.setBrush(Qt.white)
+        self.setBrush(PAPER())
         self.setAcceptHoverEvents(True)
         self._title = title
 
     def hoverEnterEvent(self, event):
-        self.setBrush(Qt.lightGray)
+        self.setBrush(HOVER())
 
     def hoverLeaveEvent(self, event):
-        self.setBrush(Qt.white)
+        self.setBrush(PAPER())
 
 
 class RefCircle(QGraphicsEllipseItem):
     def __init__(self, x, y, diameter, parent=None, ID=None, important=False):
         QGraphicsEllipseItem.__init__(self, x, y, diameter, diameter, parent)
-        self.setBrush(Qt.white)
+        self.setBrush(PAPER())
         self._ref = references.textReference(ID)
         self.setToolTip(references.tooltip(self._ref))
-        self.setPen(QPen(Qt.black, 2))
+        self.setPen(QPen(INK(), 2))
         self.setAcceptHoverEvents(True)
         if important:
-            self.setBrush(Qt.black)
+            self.setBrush(INK())
 
     def multiplyDiameter(self, factor):
         r1 = self.rect()
