@@ -32,6 +32,9 @@ def prepare(arguments, tests=False):
     app.setOrganizationDomain("www.theologeek.ch")
     app.setApplicationName("manuskript" + ("_tests" if tests else ""))
     app.setApplicationVersion(getVersion())
+    if not tests:
+        # Lets the desktop match this window to manuskript.desktop (dock icon).
+        app.setDesktopFileName("manuskript")
 
     # Beginning logging to a file. This cannot be done earlier due to the
     # default location of the log file being dependent on QApplication.
