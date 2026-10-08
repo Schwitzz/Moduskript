@@ -69,6 +69,14 @@ class settingsWindow(QWidget, Ui_Settings):
         aiItem.setTextAlignment(Qt.AlignCenter)
         self.stack.addWidget(AISettingsPage(self))
 
+        # Appearance page (colour schemes)
+        from manuskript.appearance.settingsPage import AppearanceSettingsPage
+        self.lstMenu.addItem(self.tr("Appearance"))
+        apItem = self.lstMenu.item(self.lstMenu.count() - 1)
+        apItem.setSizeHint(QSize(apItem.sizeHint().width(), 42))
+        apItem.setTextAlignment(Qt.AlignCenter)
+        self.stack.addWidget(AppearanceSettingsPage(self.mw))
+
         lowerKeys = [i.lower() for i in list(QStyleFactory.keys())]
 
         # General
