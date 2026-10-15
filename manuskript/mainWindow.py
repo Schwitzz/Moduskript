@@ -9,7 +9,7 @@ from PyQt5.QtCore import (pyqtSignal, QSignalMapper, QTimer, QSettings, Qt, QPoi
                           QRegExp, QUrl, QSize, QModelIndex)
 from PyQt5.QtGui import QStandardItemModel, QIcon, QColor, QStandardItem
 from PyQt5.QtWidgets import QMainWindow, QHeaderView, qApp, QMenu, QActionGroup, QAction, QStyle, QListWidgetItem, \
-    QLabel, QDockWidget, QWidget, QMessageBox, QLineEdit, QTextEdit, QTreeView, QDialog, QTableView
+    QLabel, QDockWidget, QWidget, QMessageBox, QLineEdit, QTextEdit, QTreeView, QDialog, QTableView, QSystemTrayIcon
 
 from manuskript import settings
 from manuskript.enums import Character, PlotStep, Plot, World, Outline
@@ -38,6 +38,9 @@ from manuskript.ui.views.outlineDelegates import outlineCharacterDelegate
 from manuskript.ui.views.plotDelegate import plotDelegate
 from manuskript.ui.views.MDEditView import MDEditView
 from manuskript.ui.views.whiteboardView import WhiteboardView
+from manuskript.web_server import (WebServerConfig, WebServerManager,
+                                   ensure_commingled_project_markers,
+                                   project_folder_signature)
 from manuskript.ui.statusLabel import statusLabel
 from manuskript.ui.bulkInfoManager import Ui_BulkInfoManager
 
@@ -188,6 +191,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.actSupport.triggered.connect(self.support)
         self.actLocateLog.triggered.connect(self.locateLogFile)
         self.actAbout.triggered.connect(self.about)
+
+        # Integrated Web Server & System Tray
+        self._initWebServerAndTray()
 
         self.makeUIConnections()
 
@@ -1048,6 +1054,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # Make sure we can update the window title later.
         self.currentProject = project
         self.projectDirty = False
+        self._lastDiskSignature = project_folder_signature(project)
         QSettings().setValue("lastProject", project)
 
         item = self.mdlOutline.rootItem
@@ -1228,6 +1235,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             # Storing the visibility of docks to restore it on restart
             appSettings.setValue("docks", self._dckVisibility)
 
+            # Stop web server on close ONLY if "Keep web-app server running in background" is disabled
+            if hasattr(self, "webServerManager") and self.webServerManager is not None:
+                if not WebServerConfig.runInBackgroundOnClose():
+                    self.webServerManager.stop()
+
     def startTimerNoChanges(self):
         """
         Something changed in the project that requires auto-saving.
@@ -1265,6 +1277,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         projectName = os.path.basename(self.currentProject)
         if r:
             self.projectDirty = False  # successful save, clear dirty flag
+            self._lastDiskSignature = project_folder_signature(self.currentProject)
+            ensure_commingled_project_markers(os.path.dirname(self.currentProject))
 
             feedback = self.tr("Project {} saved.").format(projectName)
             F.statusMessage(feedback, importance=0)
@@ -1941,6 +1955,101 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.td = TargetsDialog(self)
         self.td.show()
         self.centerChildWindow(self.td)
+
+    ###############################################################################
+    # WEB SERVER & SYSTEM TRAY INTEGRATION
+    ###############################################################################
+
+    def _initWebServerAndTray(self):
+        self.webServerManager = WebServerManager(self)
+        self._lastDiskSignature = ""
+
+        # Tools menu actions for Web App
+        self.menuTools.addSeparator()
+        self.actLaunchWebApp = QAction(
+            QIcon.fromTheme("applications-internet"),
+            self.tr("Launch Web App in Browser"),
+            self,
+        )
+        self.actLaunchWebApp.setShortcut("Ctrl+Shift+W")
+        self.actLaunchWebApp.triggered.connect(self.launchWebAppInBrowser)
+        self.menuTools.addAction(self.actLaunchWebApp)
+
+        self.actToggleWebServer = QAction(
+            QIcon.fromTheme("network-server"),
+            self.tr("Start / Stop Web Server"),
+            self,
+        )
+        self.actToggleWebServer.triggered.connect(self.toggleWebServer)
+        self.menuTools.addAction(self.actToggleWebServer)
+
+        # System Tray Icon
+        self.trayIcon = None
+        if QSystemTrayIcon.isSystemTrayAvailable():
+            self.trayIcon = QSystemTrayIcon(self.windowIcon(), self)
+            tray_menu = QMenu(self)
+            act_show = tray_menu.addAction(self.tr("Show Moduskript"))
+            act_show.triggered.connect(self._restoreFromTray)
+            act_web = tray_menu.addAction(self.tr("Open Web App in Browser"))
+            act_web.triggered.connect(self.launchWebAppInBrowser)
+            tray_menu.addSeparator()
+            self.actTrayServerStatus = tray_menu.addAction(self.tr("Web Server: Stopped"))
+            self.actTrayServerStatus.triggered.connect(self.toggleWebServer)
+            tray_menu.addSeparator()
+            act_quit_all = tray_menu.addAction(self.tr("Quit && Stop Web Server"))
+            act_quit_all.triggered.connect(self._quitAndStopServer)
+            self.trayIcon.setContextMenu(tray_menu)
+            self.trayIcon.show()
+
+        self.webServerManager.statusChanged.connect(self._onWebServerStatusChanged)
+
+        # Periodic disk watcher for external Web App edits (every 3s while a project is open)
+        self._diskWatchTimer = QTimer(self)
+        self._diskWatchTimer.setInterval(3000)
+        self._diskWatchTimer.timeout.connect(self._checkExternalProjectChanges)
+        self._diskWatchTimer.start()
+
+        # Auto-start web server on launch if configured (skip during offscreen pytest unless explicitly called)
+        if WebServerConfig.startOnLaunch() and os.environ.get("QT_QPA_PLATFORM") != "offscreen":
+            QTimer.singleShot(500, lambda: self.webServerManager.start(wait_ready=False))
+
+    def _restoreFromTray(self):
+        self.showNormal()
+        self.activateWindow()
+        self.raise_()
+
+    def _quitAndStopServer(self):
+        if hasattr(self, "webServerManager") and self.webServerManager is not None:
+            self.webServerManager.stop()
+        self.close()
+
+    def _onWebServerStatusChanged(self, running, message):
+        if hasattr(self, "actTrayServerStatus") and self.actTrayServerStatus is not None:
+            self.actTrayServerStatus.setText(
+                self.tr("Web Server: %s (Click to toggle)") % message
+            )
+        F.statusMessage(self.tr("Web Server: %s") % message, 3000)
+
+    def launchWebAppInBrowser(self):
+        proj = self.projectName() if self.currentProject else None
+        self.webServerManager.openInBrowser(proj)
+
+    def toggleWebServer(self):
+        if self.webServerManager.isRunning():
+            self.webServerManager.stop()
+        else:
+            self.webServerManager.start(wait_ready=True)
+
+    def _checkExternalProjectChanges(self):
+        """Detect if the open project was modified on disk by the Web App while clean in Desktop."""
+        if not self.currentProject or self.projectDirty:
+            return
+        sig = project_folder_signature(self.currentProject)
+        if sig and self._lastDiskSignature and sig != self._lastDiskSignature:
+            self._lastDiskSignature = sig
+            LOGGER.info("Detected external project modification on disk; reloading %s", self.currentProject)
+            self.loadProject(self.currentProject)
+            F.statusMessage(self.tr("Project reloaded with changes from Web App."), 4000)
 
     ###############################################################################
     # VIEW MENU

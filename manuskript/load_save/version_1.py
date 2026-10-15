@@ -350,14 +350,25 @@ def saveProject(zip=None):
 
         # Folder containing file: name of the project file (without .msk extension)
         folder = os.path.splitext(os.path.basename(project))[0]
+        projectFolder = os.path.join(dir, folder)
 
         # Debug
         LOGGER.debug("Saving to folder %s", folder)
 
         # If cache is empty (meaning we haven't loaded from disk), we wipe folder, just to be sure.
         if not cache:
-            if os.path.exists(os.path.join(dir, folder)):
-                shutil.rmtree(os.path.join(dir, folder))
+            if os.path.exists(projectFolder):
+                shutil.rmtree(projectFolder)
+
+        # Write .lock marker while saving so the Web Server (synclock.py) waits / avoids concurrent write races
+        os.makedirs(projectFolder, exist_ok=True)
+        lock_file = os.path.join(projectFolder, ".lock")
+        try:
+            import json as _json, time as _time
+            with open(lock_file, "wt", encoding="utf8") as lf:
+                lf.write(_json.dumps({"owner": "desktop", "pid": os.getpid(), "at": _time.time()}))
+        except OSError:
+            pass
 
         # Moving files that have been renamed
         for old, new in moves:
@@ -441,6 +452,12 @@ def saveProject(zip=None):
         except PermissionError as e:
             LOGGER.error("Cannot open file " + project + " for writing: " + e.strerror)
             filesWithPermissionErrors.append(project)
+        finally:
+            try:
+                if os.path.exists(lock_file):
+                    os.remove(lock_file)
+            except OSError:
+                pass
 
         if len(filesWithPermissionErrors) > 0:
             dlg = ListDialog(mw)

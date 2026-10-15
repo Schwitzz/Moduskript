@@ -59,6 +59,11 @@ class welcome(QWidget, Ui_welcome):
     def getLastAccessedDirectory(self):
         sttgs = QSettings()
         lastDirectory = sttgs.value("lastAccessedDirectory", defaultValue=".", type=str)
+        if lastDirectory == "." or not os.path.isdir(lastDirectory):
+            from manuskript.web_server import WebServerConfig
+            shared = WebServerConfig.sharedProjectsDir()
+            if os.path.isdir(shared):
+                lastDirectory = shared
         if lastDirectory != '.':
             LOGGER.info("Last accessed directory \"{}\" loaded.".format(lastDirectory))
         return lastDirectory
@@ -259,16 +264,21 @@ class welcome(QWidget, Ui_welcome):
             self.template = template[0]
             self.updateTemplate()
 
-        # Selected item is a sample project
+        # Selected item is a sample project or shared web project
         elif item.data(0, Qt.UserRole):
             name = item.data(0, Qt.UserRole)
             # Clear templates
             self.template = self._templates[0]
             self.updateTemplate()
-            # Change button text
-            self.btnCreate.setText("Open {}".format(name))
-            # Load project
-            self.mw.loadProject(appPath(os.path.join("sample-projects", name)))
+            if os.path.isabs(str(name)) and os.path.exists(str(name)):
+                self.btnCreate.setText("Open {}".format(os.path.basename(str(name))[:-4]))
+                self.appendToRecentFiles(str(name))
+                self.mw.loadProject(str(name))
+            else:
+                # Change button text
+                self.btnCreate.setText("Open {}".format(name))
+                # Load project
+                self.mw.loadProject(appPath(os.path.join("sample-projects", name)))
 
     def updateTemplate(self):
         # Clear layout
@@ -431,6 +441,20 @@ class welcome(QWidget, Ui_welcome):
         for f in dir.entryList(["*.msk"], filters=QDir.Files):
             sub = QTreeWidgetItem(item, [f[:-4]])
             sub.setData(0, Qt.UserRole, f)
+
+        # Add Shared Web Projects (commingled file structure)
+        try:
+            from manuskript.web_server import ensure_commingled_project_markers
+            shared_msks = ensure_commingled_project_markers()
+            if shared_msks:
+                web_item = self.addTopLevelItem(self.tr("Shared Web Projects"))
+                for msk_path in shared_msks:
+                    base = os.path.basename(msk_path)[:-4]
+                    sub = QTreeWidgetItem(web_item, [base])
+                    sub.setData(0, Qt.UserRole, msk_path)
+                    sub.setToolTip(0, msk_path)
+        except Exception:
+            pass
 
         self.tree.expandAll()
 

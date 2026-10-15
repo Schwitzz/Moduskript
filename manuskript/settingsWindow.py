@@ -84,6 +84,16 @@ class settingsWindow(QWidget, Ui_Settings):
         self.appearancePage = AppearanceSettingsPage(self.mw)
         self.stack.addWidget(self.appearancePage)
 
+        # Web Server & Sync page
+        from manuskript.web_server import WebServerSettingsPage
+        self.lstMenu.addItem(self.tr("Web Server & Sync"))
+        wsItem = self.lstMenu.item(self.lstMenu.count() - 1)
+        wsItem.setSizeHint(QSize(wsItem.sizeHint().width(), 40))
+        wsItem.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        wsItem.setIcon(QIcon.fromTheme("network-server", QIcon.fromTheme("applications-internet")))
+        self.webServerPage = WebServerSettingsPage(self.mw, self)
+        self.stack.addWidget(self.webServerPage)
+
         self._setupModernSidebarAndSearch()
 
         lowerKeys = [i.lower() for i in list(QStyleFactory.keys())]
@@ -371,6 +381,7 @@ class settingsWindow(QWidget, Ui_Settings):
             "Style": 6,
             "AI": 7,
             "Appearance": 8,
+            "WebServer": 9,
         }
 
         if tab in tabs:
@@ -424,6 +435,7 @@ class settingsWindow(QWidget, Ui_Settings):
             6: "tooltips style system colors",
             7: "ai assistant llm llama openai anthropic gemini model prompt context temperature thinking",
             8: "appearance theme colour scheme dark light midnight paper sepia accent density font",
+            9: "web server sync browser port background launch commingled projects",
         }
 
     def filterSettingsPages(self, query):
