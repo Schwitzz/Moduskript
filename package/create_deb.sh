@@ -1,7 +1,7 @@
 #!/bin/bash
-# Builds the Moduskript .deb package without requiring sudo (--root-owner-group)
+# Builds the Moduskript .deb package (`moduskript-0.01.0.deb`) without requiring sudo (--root-owner-group)
 # and places the compiled .deb in releases/.
-# Usage: ./package/create_deb.sh [Version] [PkgNumber]
+# Usage: ./package/create_deb.sh [Version]
 set -e
 
 ScriptPath="$( cd "$(dirname "$0")" ; pwd -P )"
@@ -10,8 +10,7 @@ WorkspaceRoot="$( cd "$Root/.." ; pwd -P )"
 
 Version=$(grep -E "__version__.*\".*\"" "$Root/manuskript/version.py" | cut -d\" -f2)
 AppVersion=${1:-$Version}
-PkgNumber=${2:-1}
-PkgVersion="${AppVersion}-moduskript${PkgNumber}"
+PkgVersion="${AppVersion}"
 
 BuildDir="/tmp/opencode/moduskript_deb_build"
 PkgDir="$BuildDir/pkg"
@@ -34,20 +33,27 @@ rsync -a \
   --exclude=.github \
   --include='*.msk' \
   --exclude-from="$Root/.gitignore" \
-  "$Root/" "$PkgDir/usr/share/manuskript/"
+  "$Root/" "$PkgDir/usr/share/moduskript/"
 
-cp "$ScriptPath/create_deb/manuskript" "$PkgDir/usr/bin/manuskript"
-ln -sf manuskript "$PkgDir/usr/bin/moduskript"
-cp "$ScriptPath/create_deb/manuskript.desktop" "$PkgDir/usr/share/applications/manuskript.desktop"
+ln -sf moduskript "$PkgDir/usr/share/manuskript"
 
+cp "$ScriptPath/create_deb/moduskript" "$PkgDir/usr/bin/moduskript"
+ln -sf moduskript "$PkgDir/usr/bin/manuskript"
+cp "$ScriptPath/create_deb/moduskript.desktop" "$PkgDir/usr/share/applications/moduskript.desktop"
+
+IconSourceDir="$Root/icons/Moduskript"
+if [ ! -d "$IconSourceDir" ]; then
+  IconSourceDir="$Root/icons/Manuskript"
+fi
 for s in 16 32 64 128 256 512; do
   mkdir -p "$PkgDir/usr/share/icons/hicolor/${s}x${s}/apps"
-  cp "$Root/icons/Manuskript/icon-${s}px.png" "$PkgDir/usr/share/icons/hicolor/${s}x${s}/apps/manuskript.png"
+  cp "$IconSourceDir/icon-${s}px.png" "$PkgDir/usr/share/icons/hicolor/${s}x${s}/apps/moduskript.png"
+  cp "$IconSourceDir/icon-${s}px.png" "$PkgDir/usr/share/icons/hicolor/${s}x${s}/apps/manuskript.png"
 done
 
 find "$PkgDir" -type d -exec chmod 0755 {} +
 find "$PkgDir" -type f ! -perm -u+x -exec chmod 0644 {} +
-chmod 0755 "$PkgDir/usr/bin/manuskript"
+chmod 0755 "$PkgDir/usr/bin/moduskript"
 
 SZ=$(du -sk "$PkgDir" | cut -f1)
 cat > "$PkgDir/DEBIAN/control" << EOC
@@ -74,7 +80,8 @@ Depends: python3, python3-pyqt5, python3-pyqt5.qtwebengine | python3-pyqt5.qtweb
 Suggests: texlive-latex-recommended
 EOC
 
-DebName="moduskript_${PkgVersion}_all.deb"
+DebName="moduskript-${PkgVersion}.deb"
+rm -f "$ReleasesDir"/moduskript*.deb "$WorkspaceReleasesDir"/moduskript*.deb
 dpkg-deb --root-owner-group -Zxz -b "$PkgDir" "$ReleasesDir/$DebName"
 cp "$ReleasesDir/$DebName" "$WorkspaceReleasesDir/$DebName"
 rm -rf "$BuildDir"

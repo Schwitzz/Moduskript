@@ -25,7 +25,16 @@ from manuskript.functions import openURL, writablePath
 
 LOGGER = logging.getLogger(__name__)
 
-DEFAULT_WEB_REPO = "/home/ab/workspaces/manuskript-ai-web"
+DEFAULT_WEB_REPO_CANDIDATES = [
+    "/home/ab/workspaces/moduskript-web",
+    "/home/ab/workspaces/manuskript-ai-web",
+    "/usr/share/moduskript-web",
+    "/usr/share/manuskript-web",
+]
+DEFAULT_WEB_REPO = next(
+    (p for p in DEFAULT_WEB_REPO_CANDIDATES if os.path.isdir(p)),
+    "/home/ab/workspaces/moduskript-web",
+)
 DEFAULT_PORT = 8770
 
 
@@ -168,12 +177,7 @@ class WebServerConfig:
 
     @staticmethod
     def webRepoPath():
-        candidates = [
-            _get("webRepoPath", ""),
-            DEFAULT_WEB_REPO,
-            "/usr/share/moduskript-web",
-            "/usr/share/manuskript-web",
-        ]
+        candidates = [_get("webRepoPath", "")] + DEFAULT_WEB_REPO_CANDIDATES
         for c in candidates:
             if c and os.path.isdir(os.path.join(c, "server")):
                 return c

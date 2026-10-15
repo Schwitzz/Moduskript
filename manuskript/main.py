@@ -33,8 +33,8 @@ def prepare(arguments, tests=False):
     app.setApplicationName("manuskript" + ("_tests" if tests else ""))
     app.setApplicationVersion(getVersion())
     if not tests:
-        # Lets the desktop match this window to manuskript.desktop (dock icon).
-        app.setDesktopFileName("manuskript")
+        # Lets the desktop match this window to moduskript.desktop (dock icon).
+        app.setDesktopFileName("moduskript")
 
     # Beginning logging to a file. This cannot be done earlier due to the
     # default location of the log file being dependent on QApplication.
@@ -47,8 +47,9 @@ def prepare(arguments, tests=False):
     manuskript.logging.logRuntimeInformation()
 
     icon = QIcon()
+    icon_dir = "Moduskript" if os.path.isdir(appPath(os.path.join("icons", "Moduskript"))) else "Manuskript"
     for i in [16, 32, 64, 128, 256, 512]:
-        icon.addFile(appPath(os.path.join("icons", "Manuskript", "icon-{}px.png".format(i))))
+        icon.addFile(appPath(os.path.join("icons", icon_dir, "icon-{}px.png".format(i))))
     qApp.setWindowIcon(icon)
 
     app.setStyle("Fusion")

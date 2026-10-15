@@ -61,15 +61,13 @@ A pre-compiled `.deb` package is located in the `releases/` folder:
 
 ```bash
 sudo apt update
-sudo apt install ./releases/moduskript_0.17.0-moduskript1_all.deb
+sudo apt install ./releases/moduskript-0.01.0.deb
 ```
 
 Once installed, launch **Moduskript** from your desktop application launcher or run:
 
 ```bash
 moduskript
-# or
-manuskript
 ```
 
 ### Option 2: Run Directly from Source
@@ -84,7 +82,7 @@ sudo apt install python3-pyqt5 python3-pyqt5.qtwebengine python3-lxml \
 Run Moduskript from the repository root:
 
 ```bash
-python3 bin/manuskript
+python3 bin/moduskript
 ```
 
 ---

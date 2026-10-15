@@ -1,0 +1,19 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# moduskript - invocation python script
+#
+# Based on Manuskript, Copyright (C) 2017 Olivier Keshavjee
+# Moduskript extensions licensed under GNU GPL v3.
+
+import os
+import sys
+
+if os.path.isdir('/usr/share/moduskript/'):
+    sys.path.insert(1, '/usr/share/moduskript/')
+else:
+    sys.path.insert(1, '/usr/share/manuskript/')
+
+from manuskript import main
+
+main.run()

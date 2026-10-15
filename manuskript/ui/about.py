@@ -22,10 +22,11 @@ class aboutDialog(QWidget, Ui_about):
 
     def populateFields(self):
         # Fill in all the fields in the About dialog
-        iconPic = appPath(os.path.join("icons", "Manuskript", "icon-64px.png"))
+        icon_dir = "Moduskript" if os.path.isdir(appPath(os.path.join("icons", "Moduskript"))) else "Manuskript"
+        iconPic = appPath(os.path.join("icons", icon_dir, "icon-64px.png"))
         self.setWindowIcon(QIcon(iconPic))
 
-        logoPic = QPixmap(appPath(os.path.join("icons", "Manuskript", "logo-400x104.png")))
+        logoPic = QPixmap(appPath(os.path.join("icons", icon_dir, "logo-400x104.png")))
         self.labelLogo.setPixmap(logoPic)
 
         self.labelManuskriptVersion.setText(
