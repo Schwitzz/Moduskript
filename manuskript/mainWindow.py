@@ -37,6 +37,7 @@ from manuskript.ui.tools.targets import TargetsDialog
 from manuskript.ui.views.outlineDelegates import outlineCharacterDelegate
 from manuskript.ui.views.plotDelegate import plotDelegate
 from manuskript.ui.views.MDEditView import MDEditView
+from manuskript.ui.views.whiteboardView import WhiteboardView
 from manuskript.ui.statusLabel import statusLabel
 from manuskript.ui.bulkInfoManager import Ui_BulkInfoManager
 
@@ -59,6 +60,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     TabOutline = 5
     TabRedac = 6
     TabDebug = 7
+    TabWhiteboard = 8
 
     SHOW_DEBUG_TAB = False
 
@@ -1244,6 +1246,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.mdlPlots = plotModel(self)
         self.mdlOutline = outlineModel(self)
         self.mdlWorld = worldModel(self)
+        if hasattr(self, "whiteboardView") and self.whiteboardView is not None:
+            self.whiteboardView.clearBoards()
 
     def loadDatas(self, project):
         errors = loadSave.loadProject(project)
@@ -1654,6 +1658,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # Hides navigation dock title bar
         self.dckNavigation.setTitleBarWidget(QWidget(None))
 
+        # Native Whiteboard tab (Board)
+        self.whiteboardView = WhiteboardView(self)
+        self.whiteboardView.changed.connect(self.startTimerNoChanges)
+        self.tabMain.addTab(self.whiteboardView, self.tr("Board"))
+
         # Custom "tab" bar on the left
         self.lstTabs.setIconSize(QSize(48, 48))
         for i in range(self.tabMain.count()):
@@ -1665,7 +1674,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                      F.themeIcon("world"),
                      F.themeIcon("outline"),
                      QIcon.fromTheme("gtk-edit"),
-                     QIcon.fromTheme("applications-debugging")
+                     QIcon.fromTheme("applications-debugging"),
+                     F.themeIcon("cards") if not F.themeIcon("cards").isNull() else QIcon.fromTheme("view-grid")
             ]
             self.tabMain.setTabIcon(i, icons[i])
 

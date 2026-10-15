@@ -302,6 +302,19 @@ def saveProject(zip=None):
 
     files.append(("settings.txt", settings.save(protocol=0)))
 
+    ####################################################################################################################
+    # Whiteboards (whiteboards.json)
+    global cache
+    if hasattr(mw, "whiteboardView") and mw.whiteboardView is not None:
+        wb_data = mw.whiteboardView.toDict()
+        has_wb_content = (
+            len(wb_data.get("boards", [])) > 1
+            or any(b.get("nodes") or b.get("edges") for b in wb_data.get("boards", []))
+            or ("whiteboards.json" in cache)
+        )
+        if has_wb_content:
+            files.append(("whiteboards.json", mw.whiteboardView.saveJson()))
+
     # We check if the file exist and we have write access. If the file does
     # not exist, we check the parent folder, because it might be a new project.
     if os.path.exists(project) and not os.access(project, os.W_OK) or \
@@ -330,7 +343,6 @@ def saveProject(zip=None):
     # Save to plain text
 
     else:
-        global cache
         filesWithPermissionErrors = list()
 
         # Project path
@@ -926,6 +938,14 @@ def loadProject(project, zip=None):
 
     # Check IDS
     mdl.rootItem.checkIDs()
+
+    ####################################################################################################################
+    # Whiteboards
+    if hasattr(mw, "whiteboardView") and mw.whiteboardView is not None:
+        if "whiteboards.json" in files:
+            mw.whiteboardView.loadJson(files["whiteboards.json"])
+        else:
+            mw.whiteboardView.clearBoards()
 
     if len(filesWithPermissionErrors) > 0:
         dlg = ListDialog(mw)

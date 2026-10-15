@@ -1,6 +1,6 @@
 # Chunk 2: Desktop Native Whiteboard (`QGraphicsView`) & Project Load/Save Parity
 
-**Status:** ⬜ Pending
+**Status:** ✅ Complete (Tests Passing: 73 Desktop pytest)
 
 ## Goal
 Build a native PyQt5 Whiteboard in the Desktop App (`manuskript/ui/views/whiteboardView.py`) with full feature and file parity to the Web App's whiteboard, reading and writing the same `<project>/whiteboards.json` file (including multiple boards per project, shapes, notes, 4 connector line types, hover/toggle notes, and shape/line colors).
