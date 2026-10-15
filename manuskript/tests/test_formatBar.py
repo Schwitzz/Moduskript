@@ -141,3 +141,56 @@ def test_model_dropdown_in_settings(MWSampleProject):
     assert [page.cmbModel.itemText(i) for i in range(page.cmbModel.count())][-3:] == ["x1", "x2", "x3"] \
         or page.cmbModel.findText("x3") >= 0
     assert AISettings.cachedModels(P.LOCAL) == ["x1", "x2", "x3"]
+
+
+def test_readable_vs_md_code_toggle_and_highlighter(MWSampleProject):
+    MW = MWSampleProject
+    bar = MW.mainEditor.formatBar
+    e = _openScene(MWSampleProject)
+    e.setPlainText("# Heading One\nParagraph with **bold** text.")
+    bar._view = e
+    e.show()
+
+    # Place cursor on line 2 so line 1 is inactive
+    c = e.textCursor()
+    c.movePosition(QTextCursor.End)
+    e.setTextCursor(c)
+
+    # Toggle to Readable Mode first
+    bar.btnReadable.setChecked(True)
+    assert settings.textEditor["readableMode"] is True
+    assert bar.btnReadable.text() == "Readable"
+
+    # Verify underlying Markdown text is untouched
+    assert e.toPlainText() == "# Heading One\nParagraph with **bold** text."
+    # Verify opening markup '#' on inactive block 0 has collapsed point size (0.1)
+    b0 = e.document().firstBlock()
+    formats = b0.layout().formats()
+    assert any(r.start == 0 and r.format.font().pointSizeF() == pytest.approx(0.1, abs=0.05) for r in formats)
+
+    # Toggle back to MD Code Visible mode
+    bar.btnReadable.setChecked(False)
+    assert settings.textEditor["readableMode"] is False
+    assert bar.btnReadable.text() == "MD Code"
+    formats_after = b0.layout().formats()
+    assert not any(r.start == 0 and r.format.font().pointSizeF() == pytest.approx(0.1, abs=0.05) for r in formats_after)
+
+
+def test_ai_dock_undock_and_redock_button(MWSampleProject):
+    MW = MWSampleProject
+    dock = MW.dckAI
+    dock.show()
+    assert not dock.isFloating()
+    assert dock.btnDock.text() == "Undock"
+
+    # Click to undock (float)
+    dock.toggleFloating()
+    assert dock.isFloating()
+    assert dock.btnDock.text() == "Dock"
+
+    # Click to re-dock back into the main window
+    dock.toggleFloating()
+    assert not dock.isFloating()
+    assert dock.btnDock.text() == "Undock"
+    dock.hide()
+

@@ -78,9 +78,12 @@ class AIDock(QDockWidget):
         self.cmbChats = _wideCombo()
         self.btnNew = QPushButton(self.tr("New"))
         self.btnDel = QPushButton(self.tr("Del"))
+        self.btnDock = QPushButton(self.tr("Undock"))
+        self.btnDock.setToolTip(self.tr("Dock or undock the AI Assistant panel"))
         row.addWidget(self.cmbChats, 1)
         row.addWidget(self.btnNew)
         row.addWidget(self.btnDel)
+        row.addWidget(self.btnDock)
         v.addLayout(row)
 
         row = QHBoxLayout()
@@ -128,6 +131,8 @@ class AIDock(QDockWidget):
 
         self.btnNew.clicked.connect(self.newChat)
         self.btnDel.clicked.connect(self.deleteChat)
+        self.btnDock.clicked.connect(self.toggleFloating)
+        self.topLevelChanged.connect(self._updateDockButton)
         self.btnCancel.clicked.connect(self.cancel)
         self.btnRefresh.clicked.connect(self.refreshModels)
         self.txtInput.submit.connect(self.send)
@@ -136,6 +141,24 @@ class AIDock(QDockWidget):
         self.cmbRole.activated.connect(self._rolePicked)
         self.cmbModel.activated.connect(self._modelPicked)
         self.cmbModel.lineEdit().editingFinished.connect(self._modelPicked)
+        self._updateDockButton(self.isFloating())
+
+    def toggleFloating(self):
+        """Toggle between docked and floating state, re-attaching to the right dock area when docked."""
+        want_floating = not self.isFloating()
+        self.setFloating(want_floating)
+        if not want_floating and self.mw is not None:
+            self.mw.addDockWidget(Qt.RightDockWidgetArea, self)
+            self.show()
+        self._updateDockButton(self.isFloating())
+
+    def _updateDockButton(self, is_floating=False):
+        if is_floating:
+            self.btnDock.setText(self.tr("Dock"))
+            self.btnDock.setToolTip(self.tr("Re-dock AI Assistant into main window"))
+        else:
+            self.btnDock.setText(self.tr("Undock"))
+            self.btnDock.setToolTip(self.tr("Detach AI Assistant into a floating window"))
 
     # ------------------------------------------------------ settings sync
     @staticmethod

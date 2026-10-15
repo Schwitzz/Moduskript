@@ -1,15 +1,24 @@
-# Chunk 7: Test Cleanup, `.deb` Release Packaging & Documentation (`README.md`)
+# Chunk 7: Moduskript Rebranding, Test Cleanup, `.deb` Release Packaging & Documentation (`README.md`)
 
 **Status:** ⬜ Pending
 
 ## Goal
-1. Clean up all temporary test scripts, ad-hoc patch files, and log artifacts across the workspace while keeping all legitimate automated test suites green.
-2. Compile the Desktop App into a `.deb` package and place it in `releases/`.
-3. Revise both `README.md` files (`/home/ab/workspaces/manuskript-ai/manuskript/README.md` and `/home/ab/workspaces/manuskript-ai-web/README.md`) to accurately reflect the current state, features, architecture, screenshots, and installation instructions.
+1. **Revise Marketing & Branding from Manuskript to Moduskript** across both the Desktop Application and the Web Application (UI titles, About dialog, Welcome screen, login/shell branding, PWA manifest, `.desktop` launcher, `.deb` package metadata, and documentation), while keeping the on-disk `.msk` / `MANUSKRIPT` file format 100% compatible.
+2. Clean up all temporary test scripts, ad-hoc patch files, and log artifacts across the workspace while keeping all legitimate automated test suites green.
+3. Compile the Desktop App into a `.deb` package and place it in `releases/`.
+4. Revise both `README.md` files (`/home/ab/workspaces/manuskript-ai/manuskript/README.md` and `/home/ab/workspaces/manuskript-ai-web/README.md`) to accurately reflect the **Moduskript** brand, current state, features, architecture, screenshots, and installation instructions.
 
 ---
 
 ## Scope & Tasks
+
+### 0. Revise Marketing & Branding from Manuskript to Moduskript
+- **Desktop App (`/home/ab/workspaces/manuskript-ai/manuskript/`)**:
+  - Update application display name, window title (`"Moduskript"`), About dialog (`manuskript/ui/about.py` / `about_ui.py`), Welcome screen branding, and Settings references from "Manuskript" to **"Moduskript"** (crediting upstream Manuskript in About & README).
+  - Update desktop launcher (`package/create_deb/manuskript.desktop`) to `Name=Moduskript` and `.deb` package metadata to `moduskript` (with `Conflicts/Replaces/Provides: manuskript, manuskript-ai`).
+- **Web App (`/home/ab/workspaces/manuskript-ai-web/`)**:
+  - Update Web App branding in `AppShell.svelte`, `/login`, `app.html` (`<title>Moduskript</title>`), `static/manifest.webmanifest` (`name: "Moduskript"`), and FastAPI app title (`"Moduskript"`).
+  - Keep internal file format markers (`MANUSKRIPT` and `.msk`) unchanged for backward compatibility.
 
 ### 1. Clean Up Temporary Test & Probe Files
 - Remove the ad-hoc scratch/probe scripts and logs in `/home/ab/workspaces/manuskript-ai/logs/` (`patch_*.py`, `probe_*.py`, `shot_*.py`, `run*.log`, `t_*.txt`, etc.), moving the improved `.deb` build logic into `/home/ab/workspaces/manuskript-ai/manuskript/package/build_deb.sh`.

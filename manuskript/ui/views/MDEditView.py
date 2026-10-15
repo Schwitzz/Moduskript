@@ -187,9 +187,12 @@ class MDEditView(textEditView):
 
     def cursorPositionHasChanged(self):
         self.centerCursor()
-        # Focus mode
-        if self.highlighter and settings.textEditor["focusMode"]:
-            if self._lastCursorPosition:
+        # Focus mode or Readable mode: rehighlight previous and current blocks on cursor move
+        if self.highlighter and (
+            settings.textEditor["focusMode"]
+            or settings.textEditor.get("readableMode", False)
+        ):
+            if self._lastCursorPosition is not None:
                 block = self.document().findBlock(self._lastCursorPosition)
                 self.highlighter.rehighlightBlock(block)
             self._lastCursorPosition = self.textCursor().position()

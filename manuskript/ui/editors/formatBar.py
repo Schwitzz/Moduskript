@@ -89,6 +89,13 @@ class FormatBar(QFrame):
         self.btnStrike = self._button("S", self.tr("Strikethrough"), strike=True)
         for b in (self.btnBold, self.btnItalic, self.btnStrike):
             row1.addWidget(b)
+        row1.addWidget(self._sep())
+        self.btnReadable = QToolButton()
+        self.btnReadable.setCheckable(True)
+        self.btnReadable.setFocusPolicy(Qt.NoFocus)
+        self._updateReadableButton(settings.textEditor.get("readableMode", False))
+        self.btnReadable.toggled.connect(self._toggleReadableMode)
+        row1.addWidget(self.btnReadable)
         row1.addStretch(1)
 
         # ---- row 2
@@ -287,6 +294,37 @@ class FormatBar(QFrame):
         self.spnPara.setValue(o["spacingBelow"])
         self.chkIndent.setChecked(o["indent"])
         self.spnTab.setValue(o.get("tabSpaces", 4))
+        self.btnReadable.blockSignals(True)
+        self._updateReadableButton(o.get("readableMode", False))
+        self.btnReadable.blockSignals(False)
         for w in widgets:
             w.blockSignals(False)
         self._updating = False
+
+    def _updateReadableButton(self, readable_on):
+        self.btnReadable.setChecked(bool(readable_on))
+        if readable_on:
+            self.btnReadable.setText(self.tr("Readable"))
+            self.btnReadable.setToolTip(
+                self.tr("Readable mode (Markdown syntax hidden on inactive lines — click for MD Code)")
+            )
+        else:
+            self.btnReadable.setText(self.tr("MD Code"))
+            self.btnReadable.setToolTip(
+                self.tr("MD Code mode (all Markdown syntax visible — click for Readable mode)")
+            )
+
+    def _toggleReadableMode(self, checked):
+        if self._updating:
+            return
+        settings.textEditor["readableMode"] = bool(checked)
+        self._updateReadableButton(checked)
+        v = self.target()
+        if v is not None and getattr(v, "highlighter", None) is not None:
+            v.highlighter.rehighlight()
+        from manuskript.functions import findWidgetsOfClass
+        for ed in findWidgetsOfClass(MDEditView):
+            if ed is not v and getattr(ed, "highlighter", None) is not None:
+                ed.highlighter.rehighlight()
+        if v is not None:
+            v.setFocus()

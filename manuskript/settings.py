@@ -86,7 +86,8 @@ textEditor = {
     "marginsTB": 20,
     "backgroundTransparent": False,
     "alwaysCenter": False,
-    "focusMode": False  # "line", "paragraph", "sentence"
+    "focusMode": False,  # "line", "paragraph", "sentence"
+    "readableMode": False,  # False = MD Code Visible, True = Readable Mode (collapse markup on inactive lines)
     }
 
 revisions = {
@@ -309,6 +310,7 @@ def load(string, fromString=False, protocol=None):
             "alwaysCenter": False,               # Added in 0.7.0
             "focusMode": False,
             "tabSpaces": 4,
+            "readableMode": False,
             }
 
         for k in added:

@@ -1,6 +1,6 @@
 # Chunk 4: Writing Space Parity — Markdown Code Visible vs. Readable Toggle & AI Dock Re-Dock Fix (Desktop & Web)
 
-**Status:** ⬜ Pending
+**Status:** ✅ Complete (Tests Passing: 79 Desktop pytest, 144 Web vitest, 0 svelte-check errors, 18 Playwright E2E)
 
 ## Goal
 1. Implement a live toggle in both the **Web App Writing Space** and the **Desktop App Writing Space** to switch between:
