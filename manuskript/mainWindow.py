@@ -98,6 +98,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.statusLabel.hide()
 
         # Welcome
+        self.setWindowTitle(self.tr("Moduskript"))
         self.welcome.updateValues()
         self.switchToWelcome()
 

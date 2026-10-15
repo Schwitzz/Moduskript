@@ -3,13 +3,13 @@
 """Modern Lucide-style vector icon engine for Moduskript Desktop.
 
 Renders crisp, theme-adaptive SVG icons at any size in the active colour scheme's
-foreground or accent colour (using PyQt5's `QSvgRenderer` / `QPainter`), eliminating
-missing or outdated desktop theme icons across Linux environments.
+foreground or accent colour (using QtGui `QPixmap.loadFromData(..., "SVG")` via
+`libqt5svg5`, with no dependency on `PyQt5.QtSvg`), eliminating missing or outdated
+desktop theme icons across Linux environments.
 """
 
-from PyQt5.QtCore import QByteArray, QRectF, QSize, Qt
-from PyQt5.QtGui import QColor, QIcon, QPainter, QPixmap
-from PyQt5.QtSvg import QSvgRenderer
+from PyQt5.QtCore import QByteArray, QSize, Qt
+from PyQt5.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 
 from manuskript.appearance.config import Appearance
 
@@ -203,14 +203,20 @@ def pixmap(name, size=20, color=None, accent=False):
         f'viewBox="0 0 24 24" fill="none" stroke="{stroke}" stroke-width="2" '
         f'stroke-linecap="round" stroke-linejoin="round">{body}</svg>'
     )
-    pm = QPixmap(QSize(size, size))
-    pm.fill(Qt.transparent)
-    renderer = QSvgRenderer(QByteArray(svg.encode("utf-8")))
-    painter = QPainter(pm)
-    painter.setRenderHint(QPainter.Antialiasing)
-    renderer.render(painter, QRectF(0, 0, size, size))
-    painter.end()
-    return pm
+    pm = QPixmap()
+    if pm.loadFromData(QByteArray(svg.encode("utf-8")), "SVG") and not pm.isNull():
+        if pm.width() != size or pm.height() != size:
+            pm = pm.scaled(QSize(size, size), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        return pm
+    # Fallback painted pixmap if SVG imageformat plugin is ever unavailable
+    fallback = QPixmap(QSize(size, size))
+    fallback.fill(Qt.transparent)
+    p = QPainter(fallback)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setPen(QPen(QColor(stroke), 2.0))
+    p.drawRoundedRect(3, 3, size - 6, size - 6, 3, 3)
+    p.end()
+    return fallback
 
 
 def icon(name, size=20, color=None, accent=False):
