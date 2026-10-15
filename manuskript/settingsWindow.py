@@ -8,7 +8,9 @@ from PyQt5.QtCore import QSize, QSettings, QRegExp, QTranslator, QObject
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QIntValidator, QIcon, QFont, QColor, QPixmap, QStandardItem, QPainter
 from PyQt5.QtGui import QStyleHints
-from PyQt5.QtWidgets import QStyleFactory, QWidget, QStyle, QColorDialog, QListWidgetItem, QMessageBox
+from PyQt5.QtWidgets import (QStyleFactory, QWidget, QStyle, QColorDialog,
+                             QListWidgetItem, QMessageBox, QVBoxLayout, QHBoxLayout,
+                             QLineEdit, QComboBox, QCheckBox, QLabel)
 from PyQt5.QtWidgets import qApp, QFileDialog
 
 # Spell checker support
@@ -54,30 +56,35 @@ class settingsWindow(QWidget, Ui_Settings):
                 ]
         for i in range(self.lstMenu.count()):
             item = self.lstMenu.item(i)
-            item.setSizeHint(QSize(item.sizeHint().width(), 42))
-            item.setTextAlignment(Qt.AlignCenter)
+            item.setSizeHint(QSize(item.sizeHint().width(), 40))
+            item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             if icons[i]:
                 item.setIcon(icons[i])
-        self.lstMenu.setMaximumWidth(140)
-        self.lstMenu.setMinimumWidth(140)
+        self.lstMenu.setWordWrap(False)
+        self.lstMenu.setIconSize(QSize(20, 20))
+        self.lstMenu.setMaximumWidth(210)
+        self.lstMenu.setMinimumWidth(210)
 
         # AI assistant page (added after the icon loop on purpose)
         from manuskript.ai.settingsPage import AISettingsPage
-        self.lstMenu.addItem(self.tr("AI"))
+        self.lstMenu.addItem(self.tr("AI Assistant"))
         aiItem = self.lstMenu.item(self.lstMenu.count() - 1)
-        aiItem.setSizeHint(QSize(aiItem.sizeHint().width(), 42))
-        aiItem.setTextAlignment(Qt.AlignCenter)
+        aiItem.setSizeHint(QSize(aiItem.sizeHint().width(), 40))
+        aiItem.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         aiItem.setIcon(QIcon.fromTheme("applications-chat"))
         self.stack.addWidget(AISettingsPage(self))
 
         # Appearance page (colour schemes)
         from manuskript.appearance.settingsPage import AppearanceSettingsPage
-        self.lstMenu.addItem(self.tr("Appearance"))
+        self.lstMenu.addItem(self.tr("Appearance & Theme"))
         apItem = self.lstMenu.item(self.lstMenu.count() - 1)
-        apItem.setSizeHint(QSize(apItem.sizeHint().width(), 42))
-        apItem.setTextAlignment(Qt.AlignCenter)
+        apItem.setSizeHint(QSize(apItem.sizeHint().width(), 40))
+        apItem.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         apItem.setIcon(QIcon.fromTheme("applications-publishing"))
-        self.stack.addWidget(AppearanceSettingsPage(self.mw))
+        self.appearancePage = AppearanceSettingsPage(self.mw)
+        self.stack.addWidget(self.appearancePage)
+
+        self._setupModernSidebarAndSearch()
 
         lowerKeys = [i.lower() for i in list(QStyleFactory.keys())]
 
@@ -173,6 +180,7 @@ class settingsWindow(QWidget, Ui_Settings):
         self.spnRevisionsMonth.valueChanged.connect(self.revisionsSettingsChanged)
         self.spnRevisionsEternity.setValue(int(60 * 60 * 24 * 7 / opt["rules"][None]))
         self.spnRevisionsEternity.valueChanged.connect(self.revisionsSettingsChanged)
+        self._setupRevisionPresets()
 
         # Views
         self.tabViews.setCurrentIndex(0)
@@ -294,6 +302,12 @@ class settingsWindow(QWidget, Ui_Settings):
         self.spnEditorParaAbove.valueChanged.connect(self.updateEditorSettings)
         self.spnEditorParaBelow.setValue(opt["spacingBelow"])
         self.spnEditorParaBelow.valueChanged.connect(self.updateEditorSettings)
+        self.chkEditorReadableMode = QCheckBox(
+            self.tr("Readable mode (hide Markdown syntax on inactive lines)")
+        )
+        self.chkEditorReadableMode.setChecked(opt.get("readableMode", False))
+        self.chkEditorReadableMode.stateChanged.connect(self.updateEditorSettings)
+        self.verticalLayout_22.insertWidget(0, self.chkEditorReadableMode)
         self.timerUpdateWidgets = QTimer()
         self.timerUpdateWidgets.setSingleShot(True)
         self.timerUpdateWidgets.setInterval(250)
@@ -348,17 +362,127 @@ class settingsWindow(QWidget, Ui_Settings):
 
         tabs = {
             "General": 0,
-            "Views": 1,
-            "Labels": 2,
-            "Status": 3,
-            "Fullscreen": 4,
-            "Style": 5,
+            "Revisions": 1,
+            "Views": 2,
+            "Editor": 2,
+            "Labels": 3,
+            "Status": 4,
+            "Fullscreen": 5,
+            "Style": 6,
+            "AI": 7,
+            "Appearance": 8,
         }
 
         if tab in tabs:
             self.lstMenu.setCurrentRow(tabs[tab])
+            if tab == "Editor":
+                self.tabViews.setCurrentIndex(3)
         else:
             self.lstMenu.setCurrentRow(tab)
+
+    def _setupModernSidebarAndSearch(self):
+        """Wrap lstMenu with a search filter bar and clearer page labels."""
+        self.resize(940, 660)
+        # Clearer sidebar titles
+        sidebar_titles = {
+            0: self.tr("General & Saving"),
+            1: self.tr("Revisions"),
+            2: self.tr("Views & Editor"),
+            3: self.tr("Labels"),
+            4: self.tr("Statuses"),
+            5: self.tr("Fullscreen"),
+            6: self.tr("Tooltips & Style"),
+        }
+        for idx, text in sidebar_titles.items():
+            if idx < self.lstMenu.count():
+                self.lstMenu.item(idx).setText(text)
+
+        self.horizontalLayout_8.removeWidget(self.lstMenu)
+        sidebar = QWidget(self)
+        sidebar.setMinimumWidth(215)
+        sidebar.setMaximumWidth(215)
+        sv = QVBoxLayout(sidebar)
+        sv.setContentsMargins(0, 0, 4, 0)
+        sv.setSpacing(6)
+
+        self.txtSearchSettings = QLineEdit(sidebar)
+        self.txtSearchSettings.setPlaceholderText(self.tr("Search settings..."))
+        self.txtSearchSettings.setClearButtonEnabled(True)
+        self.txtSearchSettings.textChanged.connect(self.filterSettingsPages)
+        sv.addWidget(self.txtSearchSettings)
+        sv.addWidget(self.lstMenu, 1)
+        self.horizontalLayout_8.insertWidget(0, sidebar)
+
+        # Keyword index per page row so searching "font", "theme", "ai", "autosave", etc. finds the right page
+        self._pageKeywords = {
+            0: "general saving language translation style font size character count autosave quit zip autoload",
+            1: "revisions history backup smart remove preset light standard frequent",
+            2: "views tree outline corkboard cards text editor font spacing indent tab width cursor focus typewriter readable markdown",
+            3: "labels color highlight category",
+            4: "status statuses draft todo final",
+            5: "fullscreen distraction free theme",
+            6: "tooltips style system colors",
+            7: "ai assistant llm llama openai anthropic gemini model prompt context temperature thinking",
+            8: "appearance theme colour scheme dark light midnight paper sepia accent density font",
+        }
+
+    def filterSettingsPages(self, query):
+        q = (query or "").strip().lower()
+        first_visible = None
+        for i in range(self.lstMenu.count()):
+            item = self.lstMenu.item(i)
+            label_text = (item.text() or "").lower()
+            keywords = self._pageKeywords.get(i, "")
+            match = (not q) or (q in label_text) or (q in keywords)
+            item.setHidden(not match)
+            if match and first_visible is None:
+                first_visible = i
+        if first_visible is not None:
+            cur_item = self.lstMenu.item(self.lstMenu.currentRow())
+            if cur_item is None or cur_item.isHidden():
+                self.lstMenu.setCurrentRow(first_visible)
+
+    def _setupRevisionPresets(self):
+        row = QHBoxLayout()
+        row.addWidget(QLabel(self.tr("Quick Preset:")))
+        self.cmbRevisionPreset = QComboBox()
+        self.cmbRevisionPreset.addItems([
+            self.tr("Custom"),
+            self.tr("Standard (Recommended)"),
+            self.tr("Frequent (Every minute)"),
+            self.tr("Light (Daily & Weekly)"),
+        ])
+        self.cmbRevisionPreset.activated.connect(self._applyRevisionPreset)
+        row.addWidget(self.cmbRevisionPreset, 1)
+        self.verticalLayout.insertLayout(2, row)
+
+    def _applyRevisionPreset(self, index):
+        presets = {
+            1: (True, True, 1, 1, 1, 1, 1),      # Standard
+            2: (True, True, 1, 2, 10, 4, 1),     # Frequent
+            3: (True, True, 5, 6, 6, 1, 2),      # Light
+        }
+        if index not in presets:
+            return
+        keep, smart, m10, hr, day, mo, et = presets[index]
+        for w in (self.chkRevisionsKeep, self.chkRevisionRemove,
+                  self.spnRevisions10Mn, self.spnRevisionsHour,
+                  self.spnRevisionsDay, self.spnRevisionsMonth,
+                  self.spnRevisionsEternity):
+            w.blockSignals(True)
+        self.chkRevisionsKeep.setChecked(keep)
+        self.chkRevisionRemove.setChecked(smart)
+        self.spnRevisions10Mn.setValue(m10)
+        self.spnRevisionsHour.setValue(hr)
+        self.spnRevisionsDay.setValue(day)
+        self.spnRevisionsMonth.setValue(mo)
+        self.spnRevisionsEternity.setValue(et)
+        for w in (self.chkRevisionsKeep, self.chkRevisionRemove,
+                  self.spnRevisions10Mn, self.spnRevisionsHour,
+                  self.spnRevisionsDay, self.spnRevisionsMonth,
+                  self.spnRevisionsEternity):
+            w.blockSignals(False)
+        self.revisionsSettingsChanged()
     ####################################################################################################
     #                                           GENERAL                                                #
     ####################################################################################################
@@ -644,6 +768,8 @@ class settingsWindow(QWidget, Ui_Settings):
         settings.textEditor["indent"] = True if self.chkEditorIndent.checkState() else False
         settings.textEditor["spacingAbove"] = self.spnEditorParaAbove.value()
         settings.textEditor["spacingBelow"] = self.spnEditorParaBelow.value()
+        if hasattr(self, "chkEditorReadableMode"):
+            settings.textEditor["readableMode"] = self.chkEditorReadableMode.isChecked()
 
         self.timerUpdateWidgets.start()
 

@@ -162,3 +162,59 @@ def test_general(MWSampleProject):
     SW.lstThemes.setCurrentItem(item)
     SW.removeTheme()
     assert SW.lstThemes.count() == count
+
+
+def test_modern_settings_search_presets_and_live_theme(MWSampleProject):
+    from manuskript import settings as S
+    from manuskript.appearance.config import Appearance
+
+    MW = MWSampleProject
+    MW.actSettings.triggered.emit()
+    SW = MW.sw
+    SW.hide()
+
+    # 1. Verify wider sidebar & search filter bar
+    assert SW.lstMenu.minimumWidth() >= 200
+    SW.txtSearchSettings.setText("ai")
+    assert not SW.lstMenu.item(7).isHidden()  # AI Assistant page visible
+    assert SW.lstMenu.item(3).isHidden()      # Labels hidden
+    SW.txtSearchSettings.setText("")
+    assert not SW.lstMenu.item(3).isHidden()
+
+    # 2. Verify setTab named navigation works for all tabs
+    SW.setTab("Revisions")
+    assert SW.lstMenu.currentRow() == 1
+    SW.setTab("Views")
+    assert SW.lstMenu.currentRow() == 2
+    SW.setTab("Editor")
+    assert SW.lstMenu.currentRow() == 2 and SW.tabViews.currentIndex() == 3
+    SW.setTab("AI")
+    assert SW.lstMenu.currentRow() == 7
+    SW.setTab("Appearance")
+    assert SW.lstMenu.currentRow() == 8
+
+    # 3. Verify Revision Quick Presets
+    SW._applyRevisionPreset(2)  # Frequent
+    assert SW.spnRevisionsDay.value() == 10
+    SW._applyRevisionPreset(1)  # Standard
+    assert SW.spnRevisionsDay.value() == 1
+
+    # 4. Verify Readable mode checkbox in Settings syncs with FormatBar
+    SW.chkEditorReadableMode.setChecked(True)
+    SW.updateAllWidgets()
+    assert S.textEditor["readableMode"] is True
+    assert MW.mainEditor.formatBar.btnReadable.isChecked() is True
+    SW.chkEditorReadableMode.setChecked(False)
+    SW.updateAllWidgets()
+    assert S.textEditor["readableMode"] is False
+
+    # 5. Verify live theme application in AppearanceSettingsPage
+    ap = SW.appearancePage
+    target_scheme = "dracula" if Appearance.scheme() == "nord" else "nord"
+    for i in range(ap.lst.count()):
+        if ap.lst.item(i).data(0x0100) == target_scheme:  # Qt.UserRole
+            ap.lst.setCurrentRow(i)
+            break
+    assert Appearance.scheme() == target_scheme
+    assert "applied live" in ap.lblNote.text()
+

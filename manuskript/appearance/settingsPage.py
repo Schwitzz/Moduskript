@@ -57,10 +57,10 @@ class AppearanceSettingsPage(QScrollArea):
         self.lst.setMinimumHeight(300)
         self.lst.setGridSize(QSize(PREVIEW.width() + 22, PREVIEW.height() + 44))
         v.addWidget(self.lst)
-        self.lblNote = QLabel(self.tr("Changing the scheme needs a restart to take effect."))
+        self.lblNote = QLabel(self.tr("Select any colour scheme above to apply it live."))
         self.lblNote.setWordWrap(True)
         v.addWidget(self.lblNote)
-        self.btnRestart = QPushButton(self.tr("Restart now to apply"))
+        self.btnRestart = QPushButton(self.tr("Restart application (optional)"))
         self.btnRestart.setEnabled(False)
         v.addWidget(self.btnRestart)
         lay.addWidget(box)
@@ -157,22 +157,42 @@ class AppearanceSettingsPage(QScrollArea):
             lambda v: self._save(Appearance.setRecolourIcons, v))
         self.btnRestart.clicked.connect(self._restart)
 
-    def _needRestart(self):
+    def _applyLive(self):
+        """Apply the active colour scheme, font, density, and view colours live."""
+        from PyQt5.QtWidgets import qApp
+        from manuskript import settings
+        from manuskript.appearance import apply as app_apply
+        from manuskript.appearance.views import applyToSettings
+        app_apply.apply(qApp)
+        applyToSettings(settings)
+        if self.mw is not None:
+            if hasattr(self.mw, "mainEditor") and self.mw.mainEditor is not None:
+                self.mw.mainEditor.updateCorkBackground()
+                if hasattr(self.mw.mainEditor, "tabSplitter"):
+                    self.mw.mainEditor.tabSplitter.updateStyleSheet()
+            if hasattr(self.mw, "whiteboardView") and self.mw.whiteboardView is not None:
+                self.mw.whiteboardView.canvas.viewport().update()
+            sw = getattr(self.mw, "sw", None)
+            if sw is not None:
+                sw.updateAllWidgets()
         self.btnRestart.setEnabled(True)
-        self.lblNote.setText(self.tr("Saved. Restart Manuskript to apply the changes."))
+        self.lblNote.setText(self.tr("Theme applied live. You can also restart if any icon needs refreshing."))
+
+    def _needRestart(self):
+        self._applyLive()
 
     def _save(self, setter, value):
         if self._loading:
             return
         setter(value)
-        self._needRestart()
+        self._applyLive()
 
     def _schemeChanged(self, item, _prev=None):
         if self._loading or item is None:
             return
         Appearance.setScheme(item.data(Qt.UserRole))
         self._showAccent()
-        self._needRestart()
+        self._applyLive()
 
     def _pickAccent(self):
         s = Appearance.active()

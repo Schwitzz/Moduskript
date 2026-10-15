@@ -269,6 +269,8 @@ class FormatBar(QFrame):
         put(sw.spnEditorParaBelow, lambda w: w.setValue(o["spacingBelow"]))
         put(sw.chkEditorIndent, lambda w: w.setChecked(o["indent"]))
         put(sw.spnEditorTabWidth, lambda w: w.setValue(o.get("tabSpaces", 4)))
+        if hasattr(sw, "chkEditorReadableMode"):
+            put(sw.chkEditorReadableMode, lambda w: w.setChecked(o.get("readableMode", False)))
 
     def refresh(self):
         """Show the current editor settings (also called when Settings changes)."""
@@ -319,6 +321,7 @@ class FormatBar(QFrame):
             return
         settings.textEditor["readableMode"] = bool(checked)
         self._updateReadableButton(checked)
+        self._pushToSettingsWindow()
         v = self.target()
         if v is not None and getattr(v, "highlighter", None) is not None:
             v.highlighter.rehighlight()

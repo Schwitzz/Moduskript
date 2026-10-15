@@ -1,6 +1,6 @@
 # Chunk 5: Desktop Settings Workflow Revamp
 
-**Status:** ⬜ Pending
+**Status:** ✅ Complete (Tests Passing: 80 Desktop pytest)
 
 ## Goal
 Overhaul the unintuitive, cramped Manuskript `settingsWindow` into a clean, modern, and intuitive Settings experience that is easy to navigate, supports live search/filtering, groups options logically, and applies theme/editor changes smoothly.
