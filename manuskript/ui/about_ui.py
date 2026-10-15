@@ -51,5 +51,5 @@ class Ui_about(object):
 
     def retranslateUi(self, about):
         _translate = QtCore.QCoreApplication.translate
-        about.setWindowTitle(_translate("about", "About Manuskript"))
-        self.labelLogo.setToolTip(_translate("about", "Manuskript"))
+        about.setWindowTitle(_translate("about", "About Moduskript"))
+        self.labelLogo.setToolTip(_translate("about", "Moduskript"))

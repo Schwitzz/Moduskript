@@ -190,7 +190,7 @@ class welcome(QWidget, Ui_welcome):
             pName = os.path.split(filename)[1]
             if pName.endswith('.msk'):
                 pName=pName[:-4]
-            self.mw.setWindowTitle(pName + " - " + self.tr("Manuskript"))
+            self.mw.setWindowTitle(pName + " - " + self.tr("Moduskript"))
 
     def createFile(self, filename=None, overwrite=False):
         lastDirectory = self.getLastAccessedDirectory()

@@ -1061,7 +1061,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         wc = item.data(Outline.wordCount)
         self.sessionStartWordCount = int(wc) if wc != "" else 0
         # Add project name to Window's name
-        self.setWindowTitle(self.projectName() + " - " + self.tr("Manuskript"))
+        self.setWindowTitle(self.projectName() + " - " + self.tr("Moduskript"))
 
         # Reset history
         self.history.reset()
@@ -1139,7 +1139,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             i.setEnabled(False)
 
         # Set Window's name - no project loaded
-        self.setWindowTitle(self.tr("Manuskript"))
+        self.setWindowTitle(self.tr("Moduskript"))
 
         # Reload recent files
         self.welcome.updateValues()

@@ -1,7 +1,7 @@
 [Desktop Entry]
-Name=Manuskript
-Comment=An open source tool for writers
-Keywords=manuskript;office;write;edit;novel;text;msk
+Name=Moduskript
+Comment=Open-source distraction-free writing suite with AI Assistant, 32 Themes, Whiteboard, and Web App
+Keywords=moduskript;manuskript;office;write;edit;novel;text;msk;ai
 Exec=/usr/bin/manuskript %f
 Terminal=false
 Type=Application

@@ -29,11 +29,11 @@ class aboutDialog(QWidget, Ui_about):
         self.labelLogo.setPixmap(logoPic)
 
         self.labelManuskriptVersion.setText(
-              "<b>" + self.tr("Version") + " " + getVersion() + "</b><br>"
-            + "&nbsp;"*5 + """<a href="http://www.theologeek.ch/manuskript/">
-                                http://www.theologeek.ch/manuskript/
+              "<b>Moduskript " + self.tr("Version") + " " + getVersion() + "</b><br>"
+            + "&nbsp;"*5 + """<a href="https://github.com/Schwitzz/Moduskript">
+                                https://github.com/Schwitzz/Moduskript
                                </a><br>"""
-            + "&nbsp;"*5 + "Copyright © 2015-2020 Olivier Keshavjee<br>"
+            + "&nbsp;"*5 + "Based on Manuskript © 2015-2020 Olivier Keshavjee<br>"
             + "&nbsp;"*5 + """<a href="https://www.gnu.org/licenses/gpl-3.0.en.html">
                                 GNU General Public License Version 3
                             </a><br>"""
