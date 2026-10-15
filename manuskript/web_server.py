@@ -64,13 +64,16 @@ def _is_project_folder(path: Path) -> bool:
 def resolve_projects_dir(raw_path: str) -> str:
     """Smartly resolve a user-picked folder into the directory containing project folders.
 
-    Handles all 3 cases:
+    Handles all cases:
     1. User picked a single `<Project>` folder (e.g., `/path/to/MyNovel` containing `MANUSKRIPT`
        or `infos.txt` + `outline/`): returns its parent directory (`/path/to`).
-    2. User picked a `<data>` root folder that has a `projects/` subdirectory (and no projects
-       directly at `<data>` root): returns `<data>/projects`.
-    3. User picked a folder that directly contains projects (`.msk` files or `<Project>/MANUSKRIPT`
-       subfolders) or an empty folder intended to hold projects: returns that folder itself.
+    2. User picked a folder containing a single project subfolder (e.g., `/home/ab/Documents/manuskript`
+       containing `MSK/Draft-0001` alongside an empty or sibling `projects/` folder): returns the
+       subdirectory that actually contains the project(s).
+    3. User picked a `<data>` root folder that has a `projects/` subdirectory with projects inside:
+       returns `<data>/projects`.
+    4. User picked a folder that directly contains projects (`.msk` files or `<Project>/MANUSKRIPT`
+       subfolders): returns that folder itself.
     """
     if not raw_path or not str(raw_path).strip():
         return os.path.join(DEFAULT_WEB_REPO, "data", "projects")
@@ -79,19 +82,47 @@ def resolve_projects_dir(raw_path: str) -> str:
         return str(p.parent)
     if _is_project_folder(p):
         return str(p.parent)
-    sub_projects = p / "projects"
-    if sub_projects.is_dir():
-        has_direct_projects = any(
-            (child.is_dir() and _is_project_folder(child)) or (child.is_file() and child.suffix == ".msk")
-            for child in p.iterdir()
-            if not child.name.startswith(".") and child.name != "projects"
-        )
-        if not has_direct_projects:
-            return str(sub_projects)
+    if not p.is_dir():
+        try:
+            p.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
+        return str(p)
+
+    def _count_projects_in(directory: Path) -> int:
+        if not directory.is_dir():
+            return 0
+        count = 0
+        try:
+            for child in directory.iterdir():
+                if not child.name.startswith(".") and child.is_dir() and _is_project_folder(child):
+                    count += 1
+        except OSError:
+            pass
+        return count
+
+    direct_count = _count_projects_in(p)
+    if direct_count > 0:
+        return str(p)
+
+    # Check immediate subdirectories (e.g. `projects/`, `MSK/`, etc.) for projects
+    best_sub = None
+    best_count = 0
     try:
-        p.mkdir(parents=True, exist_ok=True)
+        for sub in sorted(p.iterdir(), key=lambda x: (x.name != "projects", x.name.lower())):
+            if sub.is_dir() and not sub.name.startswith(".") and sub.name not in ("app", "templates"):
+                c = _count_projects_in(sub)
+                if c > best_count:
+                    best_count = c
+                    best_sub = sub
     except OSError:
         pass
+    if best_sub is not None and best_count > 0:
+        return str(best_sub)
+
+    sub_projects = p / "projects"
+    if sub_projects.is_dir():
+        return str(sub_projects)
     return str(p)
 
 

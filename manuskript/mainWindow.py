@@ -195,6 +195,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         # Integrated Web Server & System Tray
         self._initWebServerAndTray()
+        self._applyModernMenuIcons()
 
         self.makeUIConnections()
 
@@ -1066,6 +1067,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.projectDirty = False
         self._lastDiskSignature = project_folder_signature(project)
         QSettings().setValue("lastProject", project)
+        # Keep the Web Server synced to the directory of the active Desktop project
+        proj_parent = os.path.dirname(os.path.abspath(project))
+        if os.path.isdir(proj_parent) and "/sample-projects" not in proj_parent and "/tmp/" not in proj_parent:
+            if WebServerConfig.sharedProjectsDir() != proj_parent:
+                WebServerConfig.setDataDir(proj_parent)
+                ensure_commingled_project_markers(proj_parent)
+                if hasattr(self, "webServerManager") and self.webServerManager.isRunning(timeout=0.2):
+                    QTimer.singleShot(200, lambda: self.webServerManager.restart(wait_ready=False))
 
         item = self.mdlOutline.rootItem
         wc = item.data(Outline.wordCount)
@@ -1977,10 +1986,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.webServerManager = WebServerManager(self)
         self._lastDiskSignature = ""
 
+        from manuskript.ui.modernIcons import icon as modernIcon
         # Tools menu actions for Web App
         self.menuTools.addSeparator()
         self.actLaunchWebApp = QAction(
-            QIcon.fromTheme("applications-internet"),
+            modernIcon("globe", 16, accent=True),
             self.tr("Launch Web App in Browser"),
             self,
         )
@@ -1989,7 +1999,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.menuTools.addAction(self.actLaunchWebApp)
 
         self.actToggleWebServer = QAction(
-            QIcon.fromTheme("network-server"),
+            modernIcon("server", 16),
             self.tr("Start / Stop Web Server"),
             self,
         )
@@ -2001,15 +2011,15 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if QSystemTrayIcon.isSystemTrayAvailable():
             self.trayIcon = QSystemTrayIcon(self.windowIcon(), self)
             tray_menu = QMenu(self)
-            act_show = tray_menu.addAction(self.tr("Show Moduskript"))
+            act_show = tray_menu.addAction(modernIcon("maximize", 16), self.tr("Show Moduskript"))
             act_show.triggered.connect(self._restoreFromTray)
-            act_web = tray_menu.addAction(self.tr("Open Web App in Browser"))
+            act_web = tray_menu.addAction(modernIcon("globe", 16, accent=True), self.tr("Open Web App in Browser"))
             act_web.triggered.connect(self.launchWebAppInBrowser)
             tray_menu.addSeparator()
-            self.actTrayServerStatus = tray_menu.addAction(self.tr("Web Server: Stopped"))
+            self.actTrayServerStatus = tray_menu.addAction(modernIcon("server", 16), self.tr("Web Server: Stopped"))
             self.actTrayServerStatus.triggered.connect(self.toggleWebServer)
             tray_menu.addSeparator()
-            act_quit_all = tray_menu.addAction(self.tr("Quit && Stop Web Server"))
+            act_quit_all = tray_menu.addAction(modernIcon("close", 16), self.tr("Quit && Stop Web Server"))
             act_quit_all.triggered.connect(self._quitAndStopServer)
             self.trayIcon.setContextMenu(tray_menu)
             self.trayIcon.show()
@@ -2025,6 +2035,73 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # Auto-start web server on launch if configured (skip during offscreen pytest unless explicitly called)
         if WebServerConfig.startOnLaunch() and os.environ.get("QT_QPA_PLATFORM") != "offscreen":
             QTimer.singleShot(500, lambda: self.webServerManager.start(wait_ready=False))
+
+    def _applyModernMenuIcons(self):
+        """Apply modern Lucide SVG icons across all top-bar dropdown menus and actions."""
+        from manuskript.ui.modernIcons import icon as modernIcon
+        action_icons = [
+            # File menu
+            ("actOpen", "folder-open"),
+            ("actSave", "save"),
+            ("actSaveAs", "save"),
+            ("actImport", "download"),
+            ("actCompile", "upload"),
+            ("actCloseProject", "close"),
+            ("actQuit", "close"),
+            # Edit menu
+            ("actCopy", "copy"),
+            ("actCut", "scissors"),
+            ("actPaste", "clipboard"),
+            ("actSearch", "search"),
+            ("actRename", "edit"),
+            ("actDuplicate", "copy"),
+            ("actDelete", "trash"),
+            ("actLabels", "tag"),
+            ("actStatus", "check-circle"),
+            ("actSettings", "settings"),
+            # Format submenu
+            ("actHeaderAtxL1", "heading-1"),
+            ("actHeaderAtxL2", "heading-2"),
+            ("actHeaderAtxL3", "heading-3"),
+            ("actFormatBold", "bold"),
+            ("actFormatItalic", "italic"),
+            ("actFormatStrike", "strikethrough"),
+            ("actFormatVerbatim", "code"),
+            ("actFormatList", "list"),
+            ("actFormatOrderedList", "list-ordered"),
+            ("actFormatBlockquote", "quote"),
+            ("actFormatClear", "close"),
+            # Organize menu
+            ("actMoveUp", "arrow-up"),
+            ("actMoveDown", "arrow-down"),
+            ("actSplitDialog", "split"),
+            ("actSplitCursor", "split"),
+            ("actMerge", "merge"),
+            # Navigate menu
+            ("actBack", "arrow-left"),
+            ("actForward", "arrow-right"),
+            # View menu
+            ("actModeSimple", "file-text"),
+            ("actModeFiction", "book-open"),
+            # Tools & Help menus
+            ("actSpellcheck", "check-circle"),
+            ("actToolFrequency", "bar-chart"),
+            ("actToolTargets", "target"),
+            ("actShowHelp", "help-circle"),
+            ("actSupport", "globe"),
+            ("actLocateLog", "file-text"),
+            ("actAbout", "info"),
+        ]
+        for attr_name, icon_name in action_icons:
+            act = getattr(self, attr_name, None)
+            if act is not None:
+                act.setIcon(modernIcon(icon_name, 16))
+        if hasattr(self, "menuRecents"):
+            self.menuRecents.setIcon(modernIcon("history", 16))
+        if hasattr(self, "menuFormat"):
+            self.menuFormat.setIcon(modernIcon("pen-line", 16))
+        if hasattr(self, "menuMode"):
+            self.menuMode.setIcon(modernIcon("layers", 16))
 
     def _restoreFromTray(self):
         self.showNormal()
@@ -2079,9 +2156,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         ]
 
         menus = [
-            (self.tr("Tree"), "Tree", "view-list-tree"),
-            (self.tr("Index cards"), "Cork", "view-cards"),
-            (self.tr("Outline"), "Outline", "view-outline")
+            (self.tr("Tree"), "Tree", "list-tree"),
+            (self.tr("Index cards"), "Cork", "cards"),
+            (self.tr("Outline"), "Outline", "table")
         ]
 
         submenus = {
@@ -2110,10 +2187,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         # LOGGER.debug("Generating menus with %s.", settings.viewSettings)
 
+        from manuskript.ui.modernIcons import icon as modernIcon
         for mnu, mnud, icon in menus:
             m = QMenu(mnu, self.menuView)
             if icon:
-                m.setIcon(QIcon.fromTheme(icon))
+                m.setIcon(modernIcon(icon, 16))
             for s, sd in submenus[mnud]:
                 m2 = QMenu(s, m)
                 agp = QActionGroup(m2)

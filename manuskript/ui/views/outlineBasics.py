@@ -64,7 +64,8 @@ class outlineBasics(QAbstractItemView):
             title = title[:25] + "…"
 
         # Open Item action
-        self.actOpen = QAction(QIcon.fromTheme("go-right"),
+        from manuskript.ui.modernIcons import icon as modernIcon
+        self.actOpen = QAction(modernIcon("arrow-right", 16, accent=True),
                                safeTranslate(qApp, "outlineBasics", "Open {}".format(title)),
                                menu)
         self.actOpen.triggered.connect(self.openItem)
@@ -78,32 +79,32 @@ class outlineBasics(QAbstractItemView):
             actionTitle = safeTranslate(qApp, "outlineBasics", "Open {} in a new tab").format(title)
             self._indexesToOpen = [mouseIndex]
 
-        self.actNewTab = QAction(QIcon.fromTheme("go-right"), actionTitle, menu)
+        self.actNewTab = QAction(modernIcon("undock", 16), actionTitle, menu)
         self.actNewTab.triggered.connect(self.openItemsInNewTabs)
         menu.addAction(self.actNewTab)
 
         menu.addSeparator()
 
         # Add text / folder / chapter / note
-        self.actAddFolder = QAction(QIcon.fromTheme("folder-new"),
+        self.actAddFolder = QAction(modernIcon("folder-plus", 16),
                                     safeTranslate(qApp, "outlineBasics", "New &Folder"),
                                     menu)
         self.actAddFolder.triggered.connect(self.addFolder)
         menu.addAction(self.actAddFolder)
 
-        self.actAddChapter = QAction(QIcon.fromTheme("address-book-new", QIcon.fromTheme("document-new")),
+        self.actAddChapter = QAction(modernIcon("book-open", 16),
                                      safeTranslate(qApp, "outlineBasics", "New &Chapter"),
                                      menu)
         self.actAddChapter.triggered.connect(self.addChapter)
         menu.addAction(self.actAddChapter)
 
-        self.actAddText = QAction(QIcon.fromTheme("document-new"),
+        self.actAddText = QAction(modernIcon("file-plus", 16),
                                   safeTranslate(qApp, "outlineBasics", "New &Scene / Text"),
                                   menu)
         self.actAddText.triggered.connect(self.addText)
         menu.addAction(self.actAddText)
 
-        self.actAddNote = QAction(QIcon.fromTheme("accessories-text-editor", QIcon.fromTheme("document-edit")),
+        self.actAddNote = QAction(modernIcon("sticky-note", 16),
                                   safeTranslate(qApp, "outlineBasics", "Add Associated &Note..."),
                                   menu)
         self.actAddNote.triggered.connect(self.addAssociatedNoteDialog)
@@ -112,29 +113,29 @@ class outlineBasics(QAbstractItemView):
         menu.addSeparator()
 
         # Copy, cut, paste, duplicate
-        self.actCut = QAction(QIcon.fromTheme("edit-cut"),
+        self.actCut = QAction(modernIcon("scissors", 16),
                               safeTranslate(qApp, "outlineBasics", "C&ut"), menu)
         self.actCut.triggered.connect(self.cut)
         menu.addAction(self.actCut)
 
-        self.actCopy = QAction(QIcon.fromTheme("edit-copy"),
+        self.actCopy = QAction(modernIcon("copy", 16),
                                safeTranslate(qApp, "outlineBasics", "&Copy"), menu)
         self.actCopy.triggered.connect(self.copy)
         menu.addAction(self.actCopy)
 
-        self.actPaste = QAction(QIcon.fromTheme("edit-paste"),
+        self.actPaste = QAction(modernIcon("clipboard", 16),
                                 safeTranslate(qApp, "outlineBasics", "&Paste"), menu)
         self.actPaste.triggered.connect(self.paste)
         menu.addAction(self.actPaste)
 
         # Rename / duplicate / remove items
-        self.actDelete = QAction(QIcon.fromTheme("edit-delete"),
+        self.actDelete = QAction(modernIcon("trash", 16),
                                  safeTranslate(qApp, "outlineBasics", "&Delete"),
                                  menu)
         self.actDelete.triggered.connect(self.delete)
         menu.addAction(self.actDelete)
 
-        self.actRename = QAction(QIcon.fromTheme("edit-rename"),
+        self.actRename = QAction(modernIcon("edit", 16),
                                  safeTranslate(qApp, "outlineBasics", "&Rename"),
                                  menu)
         self.actRename.triggered.connect(self.rename)
@@ -144,8 +145,9 @@ class outlineBasics(QAbstractItemView):
 
         # POV
         self.menuPOV = QMenu(safeTranslate(qApp, "outlineBasics", "Set POV"), menu)
+        self.menuPOV.setIcon(modernIcon("users", 16))
         mw = mainWindow()
-        a = QAction(QIcon.fromTheme("dialog-no"), safeTranslate(qApp, "outlineBasics", "None"), self.menuPOV)
+        a = QAction(modernIcon("close", 14), safeTranslate(qApp, "outlineBasics", "None"), self.menuPOV)
         a.triggered.connect(lambda: self.setPOV(""))
         self.menuPOV.addAction(a)
         self.menuPOV.addSeparator()
@@ -173,10 +175,7 @@ class outlineBasics(QAbstractItemView):
 
         # Status
         self.menuStatus = QMenu(safeTranslate(qApp, "outlineBasics", "Set Status"), menu)
-        # a = QAction(QIcon.fromTheme("dialog-no"), safeTranslate(qApp, "outlineBasics", "None"), self.menuStatus)
-        # a.triggered.connect(lambda: self.setStatus(""))
-        # self.menuStatus.addAction(a)
-        # self.menuStatus.addSeparator()
+        self.menuStatus.setIcon(modernIcon("check-circle", 16))
 
         mpr = QSignalMapper(self.menuStatus)
         for i in range(mw.mdlStatus.rowCount()):
@@ -189,6 +188,7 @@ class outlineBasics(QAbstractItemView):
 
         # Labels
         self.menuLabel = QMenu(safeTranslate(qApp, "outlineBasics", "Set Label"), menu)
+        self.menuLabel.setIcon(modernIcon("tag", 16))
         mpr = QSignalMapper(self.menuLabel)
         for i in range(mw.mdlLabels.rowCount()):
             a = QAction(mw.mdlLabels.item(i, 0).icon(),
@@ -203,11 +203,13 @@ class outlineBasics(QAbstractItemView):
         menu.addSeparator()
 
         # Custom icons
+        from manuskript.ui.modernIcons import icon as modernIcon
         if self.menuCustomIcons:
             menu.addMenu(self.menuCustomIcons)
         else:
             self.menuCustomIcons = QMenu(safeTranslate(qApp, "outlineBasics", "Set Custom Icon"), menu)
-            a = QAction(safeTranslate(qApp, "outlineBasics", "Restore to default"), self.menuCustomIcons)
+            self.menuCustomIcons.setIcon(modernIcon("sparkles", 16))
+            a = QAction(modernIcon("refresh", 14), safeTranslate(qApp, "outlineBasics", "Restore to default"), self.menuCustomIcons)
             a.triggered.connect(lambda: self.setCustomIcon(""))
             self.menuCustomIcons.addAction(a)
             self.menuCustomIcons.addSeparator()
