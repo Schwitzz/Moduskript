@@ -1,8 +1,10 @@
 # Moduskript (Desktop Edition)
 
-**Moduskript** is an open-source, AI-assisted novel and long-form writing studio for Linux/desktop, built as an enhanced fork of [Manuskript](https://github.com/olivierkes/manuskript) (`0.17.0`) and paired with the companion **Moduskript Web App** (`manuskript-ai-web`).
+**Moduskript** is an open-source, AI-assisted novel and long-form writing studio for Linux/desktop, built as a modified fork of [Manuskript](https://github.com/olivierkes/manuskript) (`0.17.0`) and paired with the companion **Moduskript Web App** (`manuskript-ai-web`).
 
 Both the Desktop App and the Web App read and write the **exact same plain-text Manuskript project folders (`.msk` / `MANUSKRIPT`)**, allowing you to write seamlessly on your desktop workstation, tablet, or phone.
+
+These modification were coded with AI agents under human direction. Code reviewed by a human learning how to develop software and code as a hobbiest. As a daily user of this app and these modifications, I am committed to tight upkeep and maintenance. 
 
 ---
 
@@ -100,23 +102,6 @@ To rebuild the `.deb` package into `releases/`:
 ```bash
 QT_QPA_PLATFORM=offscreen pytest manuskript/tests/
 ```
-
----
-
-## Recent Iteration 2 Enhancements (Resolved)
-
-1. **Commingled Folder Selection & Live Server Reload (`manuskript/web_server.py` & `server/app/config.py`)**:
-   - Picking any folder in **Settings → Web Server & Sync** (whether a single `<Project>` folder, a `projects/` directory, or a `data/` root) automatically resolves the active projects directory, syncs `.msk` ↔ `MANUSKRIPT` markers, passes `MSK_PROJECTS_DIR_OVERRIDE` to the FastAPI server, and restarts the running background server so synced projects appear immediately in the Web App.
-2. **Modern Lucide SVG Icon Engine (`manuskript/ui/modernIcons.py`) & Board Tab Icon**:
-   - Installed a theme-adaptive vector icon engine across the Desktop App, giving the **Board** tab and all left navigation tabs, Settings categories, Outline tools, Editor toolbar, Whiteboard toolbar, and AI Chat dock crisp icons that automatically adapt to all 32 colour schemes.
-3. **Web App Login & Account Creation Overhaul (`/login`)**:
-   - Guaranteed SQLite schema initialization before every auth operation and added a tabbed **Sign In / Create Account** flow on `/login` with clear validation and automatic session sign-in.
-4. **Web App "More" Workspace Hub & Full Parity for Title Properties, World Builder, and Plots**:
-   - Redesigned `/more` to mirror Desktop Moduskript's workspace structure, upgraded **Title Properties & Snowflake Summary** (`/settings`) with canonical `infos.txt`/`summary.txt` keys and live word/page counts, upgraded **World Builder** (`/world`) with a split OPML tree and guided world-building prompt templates, and upgraded **Plots** (`/plots`) with a master-detail editor, linked character badges, and plot structure step templates (*Freytag's Pyramid*, *Three Acts*, *Hero's Journey*, *Dan Wells 7-Point*, *Try/Fail*).
-5. **Icon-Led Desktop Editor (`FormatBar`) & Whiteboard Drag-to-Connect Handles (`WhiteboardView`)**:
-   - Consolidated `FormatBar` into a single-row icon-led toolbar with a compact Typography/Spacing popover, converted the Desktop Whiteboard toolbar to sleek icon buttons, and enabled **click-and-drag line connections directly from node handles** with a live Bezier rubber-band preview.
-6. **Desktop AI Chat Dock Header (`AIDock`)**:
-   - Removed the redundant native `QDockWidget` title bar (`×` close and tiny float target) and replaced text controls with crisp icons for **New Chat**, **Delete Chat**, **Dock/Undock**, **Provider**, **Role**, **Model**, **Refresh**, and **Send/Stop**.
 
 ---
 
