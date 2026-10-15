@@ -46,13 +46,14 @@ class settingsWindow(QWidget, Ui_Settings):
                   ]:
             l.setStyleSheet(S.titleLabelSS())
 
-        icons = [QIcon.fromTheme("configure"),
-                 QIcon.fromTheme("history-view"),
-                 QIcon.fromTheme("gnome-settings"),
-                 themeIcon("label"),
-                 themeIcon("status"),
-                 QIcon.fromTheme("preferences-desktop-theme"),
-                 QIcon.fromTheme("color-picker")
+        from manuskript.ui.modernIcons import icon as modernIcon
+        icons = [modernIcon("settings", 20, accent=True),
+                 modernIcon("history", 20, accent=True),
+                 modernIcon("sliders", 20, accent=True),
+                 modernIcon("tag", 20, accent=True),
+                 modernIcon("check-circle", 20, accent=True),
+                 modernIcon("maximize", 20, accent=True),
+                 modernIcon("palette", 20, accent=True)
                 ]
         for i in range(self.lstMenu.count()):
             item = self.lstMenu.item(i)
@@ -71,7 +72,7 @@ class settingsWindow(QWidget, Ui_Settings):
         aiItem = self.lstMenu.item(self.lstMenu.count() - 1)
         aiItem.setSizeHint(QSize(aiItem.sizeHint().width(), 40))
         aiItem.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        aiItem.setIcon(QIcon.fromTheme("applications-chat"))
+        aiItem.setIcon(modernIcon("sparkles", 20, accent=True))
         self.stack.addWidget(AISettingsPage(self))
 
         # Appearance page (colour schemes)
@@ -80,7 +81,7 @@ class settingsWindow(QWidget, Ui_Settings):
         apItem = self.lstMenu.item(self.lstMenu.count() - 1)
         apItem.setSizeHint(QSize(apItem.sizeHint().width(), 40))
         apItem.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        apItem.setIcon(QIcon.fromTheme("applications-publishing"))
+        apItem.setIcon(modernIcon("palette", 20, accent=True))
         self.appearancePage = AppearanceSettingsPage(self.mw)
         self.stack.addWidget(self.appearancePage)
 
@@ -90,7 +91,7 @@ class settingsWindow(QWidget, Ui_Settings):
         wsItem = self.lstMenu.item(self.lstMenu.count() - 1)
         wsItem.setSizeHint(QSize(wsItem.sizeHint().width(), 40))
         wsItem.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        wsItem.setIcon(QIcon.fromTheme("network-server", QIcon.fromTheme("applications-internet")))
+        wsItem.setIcon(modernIcon("globe", 20, accent=True))
         self.webServerPage = WebServerSettingsPage(self.mw, self)
         self.stack.addWidget(self.webServerPage)
 

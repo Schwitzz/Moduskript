@@ -17,7 +17,7 @@ import json
 import time
 import uuid
 
-from PyQt5.QtCore import Qt, QPointF, QRectF, pyqtSignal
+from PyQt5.QtCore import Qt, QPointF, QRectF, QSize, pyqtSignal
 from PyQt5.QtGui import (QBrush, QColor, QFont, QIcon, QPainter, QPainterPath,
                          QPainterPathStroker, QPen, QPixmap, QPolygonF)
 from PyQt5.QtWidgets import (QColorDialog, QComboBox, QFrame, QGraphicsItem,
@@ -27,6 +27,7 @@ from PyQt5.QtWidgets import (QColorDialog, QComboBox, QFrame, QGraphicsItem,
                              QToolButton, QVBoxLayout, QWidget)
 
 from manuskript.appearance.config import Appearance
+from manuskript.ui.modernIcons import icon as modernIcon, pixmap as modernPixmap
 
 LINE_TYPES = [
     ("solid", "Solid", []),
@@ -212,10 +213,11 @@ class EdgeGraphicsItem(QGraphicsPathItem):
 
 
 class BaseNodeGraphicsItem(QGraphicsObject):
-    """Base draggable whiteboard node with left/right connection handles."""
+    """Base draggable whiteboard node with interactive left/right connection handles."""
 
     WIDTH = 110
     HEIGHT = 76
+    HANDLE_HIT_RADIUS = 13.0
 
     def __init__(self, node_id, node_type, pos, data=None, board_view=None):
         super().__init__()
@@ -225,6 +227,8 @@ class BaseNodeGraphicsItem(QGraphicsObject):
         self.board_view = board_view
         self.edges = []
         self._hovered = False
+        self._hover_handle = None
+        self._dragging_handle = None
 
         self.setPos(QPointF(float(pos.get("x", 80)), float(pos.get("y", 120))))
         self.setFlags(
@@ -236,7 +240,7 @@ class BaseNodeGraphicsItem(QGraphicsObject):
         self.setZValue(10)
 
     def boundingRect(self):
-        # Include space above for note popover
+        # Include space above for note popover and around for handles
         return QRectF(-20, -68, self.WIDTH + 40, self.HEIGHT + 78)
 
     def nodeRect(self):
@@ -244,14 +248,28 @@ class BaseNodeGraphicsItem(QGraphicsObject):
 
     def shape(self):
         path = QPainterPath()
-        path.addRoundedRect(self.nodeRect(), 8, 8)
+        path.addRoundedRect(self.nodeRect().adjusted(-12, -2, 12, 2), 8, 8)
         return path
 
+    def leftHandlePos(self):
+        return QPointF(0, self.HEIGHT / 2.0)
+
+    def rightHandlePos(self):
+        return QPointF(self.WIDTH, self.HEIGHT / 2.0)
+
     def leftHandleScenePos(self):
-        return self.mapToScene(QPointF(0, self.HEIGHT / 2.0))
+        return self.mapToScene(self.leftHandlePos())
 
     def rightHandleScenePos(self):
-        return self.mapToScene(QPointF(self.WIDTH, self.HEIGHT / 2.0))
+        return self.mapToScene(self.rightHandlePos())
+
+    def handleAtLocalPos(self, local_pt):
+        for side, hpt in (("left", self.leftHandlePos()), ("right", self.rightHandlePos())):
+            dx = local_pt.x() - hpt.x()
+            dy = local_pt.y() - hpt.y()
+            if (dx * dx + dy * dy) <= (self.HANDLE_HIT_RADIUS * self.HANDLE_HIT_RADIUS):
+                return side
+        return None
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.ItemPositionHasChanged:
@@ -263,20 +281,57 @@ class BaseNodeGraphicsItem(QGraphicsObject):
 
     def hoverEnterEvent(self, event):
         self._hovered = True
+        self._hover_handle = self.handleAtLocalPos(event.pos())
         self.update()
         super().hoverEnterEvent(event)
 
+    def hoverMoveEvent(self, event):
+        h = self.handleAtLocalPos(event.pos())
+        if h != self._hover_handle:
+            self._hover_handle = h
+            self.setCursor(Qt.CrossCursor if h else Qt.OpenHandCursor)
+            self.update()
+        super().hoverMoveEvent(event)
+
     def hoverLeaveEvent(self, event):
         self._hovered = False
+        self._hover_handle = None
+        self.unsetCursor()
         self.update()
         super().hoverLeaveEvent(event)
 
     def mousePressEvent(self, event):
-        if self.board_view and self.board_view.connection_mode:
-            self.board_view.handleConnectionNodeClick(self)
+        if event.button() == Qt.LeftButton and self.board_view:
+            # 1. Check if user clicked on a connection handle -> initiate drag-to-connect!
+            h = self.handleAtLocalPos(event.pos())
+            if h is not None:
+                self._dragging_handle = h
+                self.board_view.startHandleDragConnection(self, h, event.scenePos())
+                event.accept()
+                return
+            # 2. Or if toolbar connection mode is active -> click or drag between nodes
+            if self.board_view.connection_mode:
+                self._dragging_handle = "right"
+                self.board_view.startHandleDragConnection(self, "right", event.scenePos())
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._dragging_handle is not None and self.board_view:
+            self.board_view.updateHandleDragConnection(event.scenePos())
             event.accept()
             return
-        super().mousePressEvent(event)
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self._dragging_handle is not None and self.board_view:
+            side = self._dragging_handle
+            self._dragging_handle = None
+            self.board_view.finishHandleDragConnection(self, side, event.scenePos())
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
 
 class ShapeGraphicsItem(BaseNodeGraphicsItem):
@@ -344,11 +399,12 @@ class ShapeGraphicsItem(BaseNodeGraphicsItem):
         painter.setPen(QPen(border_col, 1.5))
         painter.drawRoundedRect(rect, 8, 8)
 
-        # Connection handles
-        painter.setBrush(QBrush(node_col))
+        # Connection handles (highlight when hovered)
         painter.setPen(QPen(tc["surface"], 1.5))
-        painter.drawEllipse(QPointF(0, self.HEIGHT / 2.0), 4.5, 4.5)
-        painter.drawEllipse(QPointF(self.WIDTH, self.HEIGHT / 2.0), 4.5, 4.5)
+        for side, hpt in (("left", self.leftHandlePos()), ("right", self.rightHandlePos())):
+            r = 6.5 if self._hover_handle == side else 4.8
+            painter.setBrush(QBrush(node_col))
+            painter.drawEllipse(hpt, r, r)
 
         # Draw shape icon in center
         cx = self.WIDTH / 2.0
@@ -468,10 +524,11 @@ class NoteGraphicsItem(BaseNodeGraphicsItem):
         painter.setPen(QPen(border_col, 1.5))
         painter.drawRoundedRect(rect, 8, 8)
 
-        painter.setBrush(QBrush(node_col))
         painter.setPen(QPen(tc["surface"], 1.5))
-        painter.drawEllipse(QPointF(0, self.HEIGHT / 2.0), 4.5, 4.5)
-        painter.drawEllipse(QPointF(self.WIDTH, self.HEIGHT / 2.0), 4.5, 4.5)
+        for side, hpt in (("left", self.leftHandlePos()), ("right", self.rightHandlePos())):
+            r = 6.5 if self._hover_handle == side else 4.8
+            painter.setBrush(QBrush(node_col))
+            painter.drawEllipse(hpt, r, r)
 
         painter.setPen(QPen(tc["text"]))
         font = QFont(painter.font())
@@ -553,6 +610,8 @@ class WhiteboardView(QWidget):
 
         self._node_items = {}
         self._edge_items = []
+        self._drag_line_item = None
+        self._drag_start_pos = None
 
         self._buildUi()
         self._applyBoard(self.boards[0])
@@ -568,12 +627,22 @@ class WhiteboardView(QWidget):
             "show_all_notes": False,
         }
 
+    @staticmethod
+    def _iconBtn(icon_name, tooltip, checkable=False):
+        b = QToolButton()
+        b.setIcon(modernIcon(icon_name, 17))
+        b.setIconSize(QSize(17, 17))
+        b.setFixedSize(32, 32)
+        b.setToolTip(tooltip)
+        b.setCheckable(checkable)
+        return b
+
     def _buildUi(self):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
-        # Centered Top Toolbar bar
+        # Centered Top Icon Toolbar bar
         top_bar = QFrame(self)
         top_bar.setObjectName("whiteboardToolbar")
         top_v = QVBoxLayout(top_bar)
@@ -581,45 +650,47 @@ class WhiteboardView(QWidget):
         top_v.setSpacing(4)
 
         row1 = QHBoxLayout()
-        row1.setSpacing(6)
+        row1.setSpacing(4)
         row1.addStretch(1)
 
-        # 1. Multi-board selector + CRUD buttons
+        # 1. Multi-board icon + selector + icon CRUD buttons
+        lbl_board_icon = QLabel()
+        lbl_board_icon.setPixmap(modernPixmap("layers", 17, accent=True))
+        lbl_board_icon.setToolTip(self.tr("Whiteboards"))
+        row1.addWidget(lbl_board_icon)
+
         self.cmbBoards = QComboBox()
-        self.cmbBoards.setMinimumWidth(140)
+        self.cmbBoards.setMinimumWidth(135)
         self.cmbBoards.setToolTip(self.tr("Switch active whiteboard"))
         self.cmbBoards.activated.connect(self._onBoardComboActivated)
         row1.addWidget(self.cmbBoards)
 
-        self.btnNewBoard = QToolButton()
-        self.btnNewBoard.setText("+ Board")
-        self.btnNewBoard.setToolTip(self.tr("Create a new whiteboard in this project"))
+        self.btnNewBoard = self._iconBtn("folder-plus", self.tr("Create a new whiteboard in this project"))
         self.btnNewBoard.clicked.connect(self.createNewBoardDialog)
         row1.addWidget(self.btnNewBoard)
 
-        self.btnRenameBoard = QToolButton()
-        self.btnRenameBoard.setText(self.tr("Rename"))
-        self.btnRenameBoard.setToolTip(self.tr("Rename current whiteboard"))
+        self.btnRenameBoard = self._iconBtn("edit", self.tr("Rename current whiteboard"))
         self.btnRenameBoard.clicked.connect(self.renameActiveBoardDialog)
         row1.addWidget(self.btnRenameBoard)
 
-        self.btnDeleteBoard = QToolButton()
-        self.btnDeleteBoard.setText(self.tr("Del Board"))
-        self.btnDeleteBoard.setToolTip(self.tr("Delete current whiteboard"))
+        self.btnDeleteBoard = self._iconBtn("trash", self.tr("Delete current whiteboard"))
         self.btnDeleteBoard.clicked.connect(self.deleteActiveBoard)
         row1.addWidget(self.btnDeleteBoard)
 
-        # 2. Add node menu button
-        self.btnAddNode = QToolButton()
-        self.btnAddNode.setText("+ Add")
-        self.btnAddNode.setToolTip(self.tr("Add shape or note node"))
+        sep1 = QFrame()
+        sep1.setFrameShape(QFrame.VLine)
+        sep1.setFrameShadow(QFrame.Sunken)
+        row1.addWidget(sep1)
+
+        # 2. Add node icon menu button
+        self.btnAddNode = self._iconBtn("plus", self.tr("Add shape or note node"))
         self.btnAddNode.setPopupMode(QToolButton.InstantPopup)
         add_menu = QMenu(self.btnAddNode)
         for shape_id, label in SHAPES:
             act = add_menu.addAction(_shape_icon(shape_id), self.tr(label))
             act.triggered.connect(lambda _c=False, s=shape_id: self.addNode("shape", "", s))
         add_menu.addSeparator()
-        act_note = add_menu.addAction(self.tr("Note"))
+        act_note = add_menu.addAction(modernIcon("sticky-note", 16), self.tr("Note"))
         act_note.triggered.connect(lambda: self.addNode("note", "Note"))
         self.btnAddNode.setMenu(add_menu)
         row1.addWidget(self.btnAddNode)
@@ -627,6 +698,7 @@ class WhiteboardView(QWidget):
         # 3. Shape type switcher (when a shape is selected)
         self.btnShapeType = QToolButton()
         self.btnShapeType.setIcon(_shape_icon("rectangle"))
+        self.btnShapeType.setFixedSize(32, 32)
         self.btnShapeType.setToolTip(self.tr("Change selected shape type"))
         self.btnShapeType.setPopupMode(QToolButton.InstantPopup)
         shape_menu = QMenu(self.btnShapeType)
@@ -639,8 +711,9 @@ class WhiteboardView(QWidget):
         # 4. Line style button (with live preview + connection mode activation)
         self.btnLineStyle = QToolButton()
         self.btnLineStyle.setCheckable(True)
+        self.btnLineStyle.setFixedSize(36, 32)
         self.btnLineStyle.setIcon(_line_icon(self.edge_line_type))
-        self.btnLineStyle.setToolTip(self.tr("Line style (select to connect nodes or change selected line)"))
+        self.btnLineStyle.setToolTip(self.tr("Line style (select to connect nodes or drag from any node handle)"))
         self.btnLineStyle.setPopupMode(QToolButton.InstantPopup)
         line_menu = QMenu(self.btnLineStyle)
         for lid, label, _pat in LINE_TYPES:
@@ -651,6 +724,7 @@ class WhiteboardView(QWidget):
 
         # 5. Color picker button (palette + custom color dialog)
         self.btnColor = QToolButton()
+        self.btnColor.setFixedSize(32, 32)
         self.btnColor.setIcon(_color_swatch_icon(""))
         self.btnColor.setToolTip(self.tr("Color for selected shape, note, or line"))
         self.btnColor.setPopupMode(QToolButton.InstantPopup)
@@ -659,42 +733,36 @@ class WhiteboardView(QWidget):
             act = color_menu.addAction(_color_swatch_icon(hex_val), self.tr(label))
             act.triggered.connect(lambda _c=False, c=hex_val: self.selectColor(c))
         color_menu.addSeparator()
-        act_custom = color_menu.addAction(self.tr("Custom Color..."))
+        act_custom = color_menu.addAction(modernIcon("palette", 16), self.tr("Custom Color..."))
         act_custom.triggered.connect(self.pickCustomColor)
         self.btnColor.setMenu(color_menu)
         row1.addWidget(self.btnColor)
 
-        # 6. Show notes toggle
-        self.btnShowNotes = QToolButton()
-        self.btnShowNotes.setCheckable(True)
-        self.btnShowNotes.setText(self.tr("Show notes"))
-        self.btnShowNotes.setToolTip(self.tr("Toggle showing all shape notes"))
+        # 6. Show notes toggle (icon button)
+        self.btnShowNotes = self._iconBtn("sticky-note", self.tr("Toggle showing all shape notes"), checkable=True)
         self.btnShowNotes.clicked.connect(self.toggleShowAllNotes)
         row1.addWidget(self.btnShowNotes)
 
-        # 7. Delete selected
-        self.btnDelete = QToolButton()
-        self.btnDelete.setText(self.tr("Delete"))
-        self.btnDelete.setToolTip(self.tr("Delete selected node or connector line"))
+        # 7. Delete selected (icon button)
+        self.btnDelete = self._iconBtn("trash", self.tr("Delete selected node or connector line"))
         self.btnDelete.clicked.connect(self.deleteSelected)
         row1.addWidget(self.btnDelete)
 
-        # 8. Zoom controls
-        self.btnZoomIn = QToolButton()
-        self.btnZoomIn.setText("+")
-        self.btnZoomIn.setToolTip(self.tr("Zoom in"))
+        sep2 = QFrame()
+        sep2.setFrameShape(QFrame.VLine)
+        sep2.setFrameShadow(QFrame.Sunken)
+        row1.addWidget(sep2)
+
+        # 8. Zoom controls (icon buttons)
+        self.btnZoomIn = self._iconBtn("zoom-in", self.tr("Zoom in"))
         self.btnZoomIn.clicked.connect(self.zoomIn)
         row1.addWidget(self.btnZoomIn)
 
-        self.btnZoomOut = QToolButton()
-        self.btnZoomOut.setText("-")
-        self.btnZoomOut.setToolTip(self.tr("Zoom out"))
+        self.btnZoomOut = self._iconBtn("zoom-out", self.tr("Zoom out"))
         self.btnZoomOut.clicked.connect(self.zoomOut)
         row1.addWidget(self.btnZoomOut)
 
-        self.btnFit = QToolButton()
-        self.btnFit.setText(self.tr("Fit"))
-        self.btnFit.setToolTip(self.tr("Reset zoom and fit view"))
+        self.btnFit = self._iconBtn("minimize", self.tr("Reset zoom and fit view"))
         self.btnFit.clicked.connect(self.fitView)
         row1.addWidget(self.btnFit)
 
@@ -987,6 +1055,69 @@ class WhiteboardView(QWidget):
             self.addEdge(self.connect_from_item.node_id, node_item.node_id)
             self.connect_from_item = None
             self._updateInspectorVisibility()
+
+    def _findNodeAtScenePos(self, scene_pos, exclude_node=None):
+        for item in self.scene.items(scene_pos):
+            cur = item
+            while cur is not None:
+                if isinstance(cur, BaseNodeGraphicsItem) and cur is not exclude_node:
+                    return cur
+                cur = cur.parentItem()
+        return None
+
+    def startHandleDragConnection(self, source_node, side, scene_pos):
+        """Start an interactive rubber-band Bezier connection from a node handle or node click."""
+        p1 = source_node.leftHandleScenePos() if side == "left" else source_node.rightHandleScenePos()
+        self._drag_start_pos = p1
+        if self._drag_line_item is not None:
+            self.scene.removeItem(self._drag_line_item)
+        self._drag_line_item = QGraphicsPathItem()
+        tc = _theme_colors()
+        stroke_col = QColor(self.active_color) if self.active_color else tc["accent"]
+        pen = QPen(stroke_col, 2.2, Qt.DashLine, Qt.RoundCap)
+        self._drag_line_item.setPen(pen)
+        self._drag_line_item.setZValue(50)
+        self.scene.addItem(self._drag_line_item)
+        self.updateHandleDragConnection(scene_pos)
+
+    def updateHandleDragConnection(self, scene_pos):
+        if self._drag_line_item is None or self._drag_start_pos is None:
+            return
+        p1 = self._drag_start_pos
+        p2 = scene_pos
+        dx = max(abs(p2.x() - p1.x()) * 0.5, 30.0)
+        path = QPainterPath(p1)
+        path.cubicTo(QPointF(p1.x() + dx, p1.y()), QPointF(p2.x() - dx, p2.y()), p2)
+        self._drag_line_item.setPath(path)
+
+    def finishHandleDragConnection(self, source_node, side, scene_pos):
+        if self._drag_line_item is not None:
+            self.scene.removeItem(self._drag_line_item)
+            self._drag_line_item = None
+        self._drag_start_pos = None
+
+        target_node = self._findNodeAtScenePos(scene_pos, exclude_node=source_node)
+        if target_node is not None:
+            # Dragged from source_node onto target_node -> create edge immediately!
+            self.addEdge(source_node.node_id, target_node.node_id)
+            self.connect_from_item = None
+            self._updateInspectorVisibility()
+            return
+
+        # If user clicked a handle (or clicked a node in connection mode) without dragging onto a target,
+        # support two-click connection (Node 1 -> Node 2) seamlessly!
+        if self.connect_from_item is not None and self.connect_from_item is not source_node:
+            self.addEdge(self.connect_from_item.node_id, source_node.node_id)
+            self.connect_from_item = None
+            self._updateInspectorVisibility()
+            return
+
+        self.connection_mode = True
+        self.btnLineStyle.setChecked(True)
+        self.connect_from_item = source_node
+        self.scene.clearSelection()
+        source_node.setSelected(True)
+        self._updateInspectorVisibility()
 
     def selectColor(self, color_hex):
         self.active_color = color_hex or ""

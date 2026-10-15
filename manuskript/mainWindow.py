@@ -384,24 +384,33 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def _setupOutlineParityControls(self):
         """Add Web-parity Outline controls: + Add menu (Folder, Chapter, Scene, Note) and Tree/Table view toggle."""
         from PyQt5.QtWidgets import QPushButton, QToolButton
+        from manuskript.ui.modernIcons import icon as modernIcon
+
+        self.btnRedacAddFolder.setIcon(modernIcon("folder-plus", size=18))
+        self.btnRedacAddText.setIcon(modernIcon("file-plus", size=18))
+        self.btnRedacRemoveItem.setIcon(modernIcon("trash", size=18))
+        self.btnOutlineAddFolder.setIcon(modernIcon("folder-plus", size=18))
+        self.btnOutlineAddText.setIcon(modernIcon("file-plus", size=18))
+        self.btnOutlineRemoveItem.setIcon(modernIcon("trash", size=18))
+
         self.btnOutlineAddMenu = QToolButton(self.layoutWidget)
-        self.btnOutlineAddMenu.setText(self.tr("+ Add"))
+        self.btnOutlineAddMenu.setIcon(modernIcon("plus", size=18, accent=True))
         self.btnOutlineAddMenu.setToolTip(self.tr("Add folder, chapter, scene, or associated note"))
         self.btnOutlineAddMenu.setPopupMode(QToolButton.InstantPopup)
         add_menu = QMenu(self.btnOutlineAddMenu)
-        add_menu.addAction(self.tr("Add folder"), self.treeOutlineOutline.addFolder)
-        add_menu.addAction(self.tr("Add chapter"), self.treeOutlineOutline.addChapter)
-        add_menu.addAction(self.tr("Add scene"), self.treeOutlineOutline.addScene)
+        add_menu.addAction(modernIcon("folder-plus", 16), self.tr("Add folder"), self.treeOutlineOutline.addFolder)
+        add_menu.addAction(modernIcon("book-open", 16), self.tr("Add chapter"), self.treeOutlineOutline.addChapter)
+        add_menu.addAction(modernIcon("file-plus", 16), self.tr("Add scene"), self.treeOutlineOutline.addScene)
         add_menu.addSeparator()
-        add_menu.addAction(self.tr("Add note"), self.treeOutlineOutline.addAssociatedNoteDialog)
+        add_menu.addAction(modernIcon("sticky-note", 16), self.tr("Add note"), self.treeOutlineOutline.addAssociatedNoteDialog)
         self.btnOutlineAddMenu.setMenu(add_menu)
         self.horizontalLayout_18.insertWidget(0, self.btnOutlineAddMenu)
 
-        self.btnOutlineModeTree = QPushButton(self.tr("Tree"), self.layoutWidget)
+        self.btnOutlineModeTree = QPushButton(modernIcon("list-tree", 16), "", self.layoutWidget)
         self.btnOutlineModeTree.setCheckable(True)
         self.btnOutlineModeTree.setFlat(True)
         self.btnOutlineModeTree.setToolTip(self.tr("Tree view"))
-        self.btnOutlineModeTable = QPushButton(self.tr("Table"), self.layoutWidget)
+        self.btnOutlineModeTable = QPushButton(modernIcon("table", 16), "", self.layoutWidget)
         self.btnOutlineModeTable.setCheckable(True)
         self.btnOutlineModeTable.setChecked(True)
         self.btnOutlineModeTable.setFlat(True)
@@ -1714,21 +1723,24 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.whiteboardView.changed.connect(self.startTimerNoChanges)
         self.tabMain.addTab(self.whiteboardView, self.tr("Board"))
 
-        # Custom "tab" bar on the left
-        self.lstTabs.setIconSize(QSize(48, 48))
+        # Custom "tab" bar on the left (using crisp modern Lucide SVG icons)
+        from manuskript.ui.modernIcons import icon as modernIcon
+        self.lstTabs.setIconSize(QSize(32, 32))
+        tab_icon_names = [
+            "book-open",      # TabInfos (General / Book Info)
+            "file-text",      # TabSummary
+            "users",          # TabPersos (Characters)
+            "git-branch",     # TabPlots
+            "globe",          # TabWorld
+            "list-tree",      # TabOutline
+            "pen-line",       # TabRedac (Editor)
+            "cpu",            # TabDebug
+            "board",          # TabWhiteboard (Board)
+        ]
         for i in range(self.tabMain.count()):
-
-            icons = [QIcon.fromTheme("stock_view-details"), #info
-                     QIcon.fromTheme("application-text-template"), #applications-publishing
-                     F.themeIcon("characters"),
-                     F.themeIcon("plots"),
-                     F.themeIcon("world"),
-                     F.themeIcon("outline"),
-                     QIcon.fromTheme("gtk-edit"),
-                     QIcon.fromTheme("applications-debugging"),
-                     F.themeIcon("cards") if not F.themeIcon("cards").isNull() else QIcon.fromTheme("view-grid")
-            ]
-            self.tabMain.setTabIcon(i, icons[i])
+            ic_name = tab_icon_names[i] if i < len(tab_icon_names) else "sparkles"
+            ic = modernIcon(ic_name, size=32, accent=True)
+            self.tabMain.setTabIcon(i, ic)
 
             item = QListWidgetItem(self.tabMain.tabIcon(i),
                                    self.tabMain.tabText(i))

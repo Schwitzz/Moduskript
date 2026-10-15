@@ -76,8 +76,26 @@ def test_whiteboard_shapes_notes_edges_and_colors():
     assert edge.line_type == "dash"
     wb.selectLineType("dot")
     assert edge.line_type == "dot"
-    wb.selectColor("#3b82f6")
-    assert edge.color == "#3b82f6"
+    assert wb.btnAddNode.text() == ""
+    assert not wb.btnAddNode.icon().isNull()
+    assert wb.btnDelete.text() == ""
+    assert not wb.btnDelete.icon().isNull()
+    assert wb.btnShowNotes.text() == ""
+    assert not wb.btnShowNotes.icon().isNull()
+
+    # Add a third node and connect by dragging directly from s2's right handle onto s3!
+    s3 = wb.addNode("shape", "Antagonist", "triangle")
+    assert s2.handleAtLocalPos(s2.rightHandlePos()) == "right"
+    assert s2.handleAtLocalPos(s2.leftHandlePos()) == "left"
+    wb.startHandleDragConnection(s2, "right", s2.rightHandleScenePos())
+    assert wb._drag_line_item is not None
+    target_center = s3.mapToScene(s3.nodeRect().center())
+    wb.updateHandleDragConnection(target_center)
+    wb.finishHandleDragConnection(s2, "right", target_center)
+    assert wb._drag_line_item is None
+    assert len(wb._edge_items) == 2
+    assert wb._edge_items[1].source_item == s2
+    assert wb._edge_items[1].target_item == s3
 
 
 def test_multiple_whiteboards_crud():

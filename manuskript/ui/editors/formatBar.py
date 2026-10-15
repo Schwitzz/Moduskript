@@ -1,24 +1,28 @@
 # --!-- coding: utf8 --!--
-"""Formatting bar shown above the main text editor.
+"""Icon-led formatting bar shown above the main text editor (Web Editor parity).
 
-Row 1: paragraph style, font, size, bold / italic / strike.
-Row 2: alignment, line spacing, paragraph spacing, first-line indent, tab width.
+Primary Row:
+  Undo, Redo | Style dropdown, H1, H2, H3 | Bold, Italic, Strikethrough |
+  Quote, Bullet List, Numbered List | Align Left, Center, Right, Justify |
+  Typography & Spacing popover button (Font, Size, Line spacing, Paragraph spacing, Indent, Tab spaces) |
+  Readable / MD Code toggle button.
 
-Paragraph style and bold/italic act on the text in the editor (Markdown).
-Everything in row 2 and the font are the same app-wide editor settings as
-Settings -> Views -> Text editor, so both places always show the same values.
+All settings controls (`cmbFont`, `spnSize`, `cmbAlign`, `cmbSpacing`, `spnPara`, `chkIndent`, `spnTab`)
+remain synced with Settings -> Views & Editor -> Text editor.
 """
 
 import re
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QSize
 from PyQt5.QtGui import QFont, QTextCursor
-from PyQt5.QtWidgets import (QCheckBox, QComboBox, QFontComboBox, QFrame,
-                             QHBoxLayout, QLabel, QSpinBox, QToolButton,
-                             QVBoxLayout, qApp)
+from PyQt5.QtWidgets import (QCheckBox, QComboBox, QFontComboBox, QFormLayout,
+                             QFrame, QHBoxLayout, QLabel, QMenu, QSpinBox,
+                             QToolButton, QVBoxLayout, QWidget, QWidgetAction,
+                             qApp)
 
 from manuskript import settings
 from manuskript.functions import mainWindow
+from manuskript.ui.modernIcons import icon as modernIcon
 from manuskript.ui.views.MDEditView import MDEditView
 
 STYLES = ["Body text", "Heading 1", "Heading 2", "Heading 3", "Heading 4",
@@ -62,43 +66,69 @@ class FormatBar(QFrame):
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(6, 4, 6, 4)
-        outer.setSpacing(4)
-        row1, row2 = QHBoxLayout(), QHBoxLayout()
-        for r in (row1, row2):
-            r.setSpacing(6)
+        outer.setSpacing(2)
+        row1 = QHBoxLayout()
+        row1.setSpacing(3)
         outer.addLayout(row1)
-        outer.addLayout(row2)
 
-        # ---- row 1
+        # ---- Undo / Redo
+        self.btnUndo = self._iconBtn("undo", self.tr("Undo (Ctrl+Z)"))
+        self.btnRedo = self._iconBtn("redo", self.tr("Redo (Ctrl+Y)"))
+        row1.addWidget(self.btnUndo)
+        row1.addWidget(self.btnRedo)
+        row1.addWidget(self._sep())
+
+        # ---- Paragraph style & H1 / H2 / H3 quick icon buttons
         self.cmbStyle = QComboBox()
         self.cmbStyle.addItems([self.tr(s) for s in STYLES])
-        self.cmbStyle.setToolTip(self.tr("Paragraph style (applies to the selected paragraphs)"))
+        self.cmbStyle.setToolTip(self.tr("Paragraph style (applies to selected paragraphs)"))
+        self.cmbStyle.setMaximumWidth(125)
+        self.btnH1 = self._iconBtn("heading-1", self.tr("Heading 1"))
+        self.btnH2 = self._iconBtn("heading-2", self.tr("Heading 2"))
+        self.btnH3 = self._iconBtn("heading-3", self.tr("Heading 3"))
+        row1.addWidget(self.cmbStyle)
+        row1.addWidget(self.btnH1)
+        row1.addWidget(self.btnH2)
+        row1.addWidget(self.btnH3)
+        row1.addWidget(self._sep())
+
+        # ---- Inline formatting: Bold / Italic / Strikethrough
+        self.btnBold = self._iconBtn("bold", self.tr("Bold (Ctrl+B)"))
+        self.btnItalic = self._iconBtn("italic", self.tr("Italic (Ctrl+I)"))
+        self.btnStrike = self._iconBtn("strikethrough", self.tr("Strikethrough"))
+        for b in (self.btnBold, self.btnItalic, self.btnStrike):
+            row1.addWidget(b)
+        row1.addWidget(self._sep())
+
+        # ---- Block formatting: Quote / Bullet List / Numbered List
+        self.btnQuote = self._iconBtn("quote", self.tr("Blockquote"))
+        self.btnBulletList = self._iconBtn("list", self.tr("Bullet list"))
+        self.btnNumberedList = self._iconBtn("list-ordered", self.tr("Numbered list"))
+        for b in (self.btnQuote, self.btnBulletList, self.btnNumberedList):
+            row1.addWidget(b)
+        row1.addWidget(self._sep())
+
+        # ---- Alignment icon buttons (synced with self.cmbAlign)
+        self.btnAlignLeft = self._iconBtn("align-left", self.tr("Align Left"))
+        self.btnAlignCenter = self._iconBtn("align-center", self.tr("Align Center"))
+        self.btnAlignRight = self._iconBtn("align-right", self.tr("Align Right"))
+        self.btnAlignJustify = self._iconBtn("align-justify", self.tr("Justify"))
+        for idx, b in enumerate((self.btnAlignLeft, self.btnAlignCenter,
+                                 self.btnAlignRight, self.btnAlignJustify)):
+            b.setCheckable(True)
+            b.clicked.connect(lambda _c=False, i=idx: self._setAlignmentIndex(i))
+            row1.addWidget(b)
+        row1.addWidget(self._sep())
+
+        # ---- Typography & Spacing Popover (holds cmbFont, spnSize, cmbAlign, cmbSpacing, spnPara, chkIndent, spnTab)
         self.cmbFont = QFontComboBox()
         self.cmbFont.setToolTip(self.tr("Editor font"))
-        self.cmbFont.setMaximumWidth(190)
+        self.cmbFont.setMaximumWidth(170)
         self.spnSize = QSpinBox()
         self.spnSize.setRange(6, 72)
         self.spnSize.setSuffix(" pt")
         self.spnSize.setToolTip(self.tr("Editor font size"))
-        row1.addWidget(self.cmbStyle)
-        row1.addWidget(self.cmbFont)
-        row1.addWidget(self.spnSize)
-        row1.addWidget(self._sep())
-        self.btnBold = self._button("B", self.tr("Bold (Ctrl+B)"), bold=True)
-        self.btnItalic = self._button("I", self.tr("Italic (Ctrl+I)"), italic=True)
-        self.btnStrike = self._button("S", self.tr("Strikethrough"), strike=True)
-        for b in (self.btnBold, self.btnItalic, self.btnStrike):
-            row1.addWidget(b)
-        row1.addWidget(self._sep())
-        self.btnReadable = QToolButton()
-        self.btnReadable.setCheckable(True)
-        self.btnReadable.setFocusPolicy(Qt.NoFocus)
-        self._updateReadableButton(settings.textEditor.get("readableMode", False))
-        self.btnReadable.toggled.connect(self._toggleReadableMode)
-        row1.addWidget(self.btnReadable)
-        row1.addStretch(1)
 
-        # ---- row 2
         self.cmbAlign = QComboBox()
         self.cmbAlign.addItems([self.tr(a) for a in ALIGNMENTS])
         self.cmbAlign.setToolTip(self.tr("Text alignment"))
@@ -110,23 +140,64 @@ class FormatBar(QFrame):
         self.spnPara.setRange(0, 60)
         self.spnPara.setSuffix(" px")
         self.spnPara.setToolTip(self.tr("Space below each paragraph"))
-        self.chkIndent = QCheckBox(self.tr("Indent"))
+        self.chkIndent = QCheckBox(self.tr("First-line indent"))
         self.chkIndent.setToolTip(self.tr("Indent the first line of each paragraph"))
         self.spnTab = QSpinBox()
         self.spnTab.setRange(1, 24)
         self.spnTab.setSuffix(self.tr(" spaces"))
         self.spnTab.setToolTip(self.tr("Width of the Tab key and of the indent"))
-        for w in (QLabel(self.tr("Align")), self.cmbAlign,
-                  QLabel(self.tr("Lines")), self.cmbSpacing,
-                  QLabel(self.tr("Below")), self.spnPara,
-                  self.chkIndent, QLabel(self.tr("Tab")), self.spnTab):
-            row2.addWidget(w)
-        row2.addStretch(1)
 
+        self.btnTypography = QToolButton()
+        self.btnTypography.setIcon(modernIcon("sliders", 17))
+        self.btnTypography.setIconSize(QSize(17, 17))
+        self.btnTypography.setMinimumSize(30, 28)
+        self.btnTypography.setPopupMode(QToolButton.InstantPopup)
+        self.btnTypography.setToolTip(
+            self.tr("Typography, Font, Line Spacing, Paragraph Spacing & Tab Width")
+        )
+        typo_menu = QMenu(self.btnTypography)
+        typo_panel = QWidget(typo_menu)
+        typo_form = QFormLayout(typo_panel)
+        typo_form.setContentsMargins(10, 10, 10, 10)
+        typo_form.setSpacing(6)
+        typo_form.addRow(self.tr("Font:"), self.cmbFont)
+        typo_form.addRow(self.tr("Size:"), self.spnSize)
+        typo_form.addRow(self.tr("Align:"), self.cmbAlign)
+        typo_form.addRow(self.tr("Line spacing:"), self.cmbSpacing)
+        typo_form.addRow(self.tr("Space below:"), self.spnPara)
+        typo_form.addRow(self.tr("Tab width:"), self.spnTab)
+        typo_form.addRow("", self.chkIndent)
+        typo_act = QWidgetAction(typo_menu)
+        typo_act.setDefaultWidget(typo_panel)
+        typo_menu.addAction(typo_act)
+        self.btnTypography.setMenu(typo_menu)
+        row1.addWidget(self.btnTypography)
+
+        # ---- Readable / MD Code mode toggle button
+        self.btnReadable = QToolButton()
+        self.btnReadable.setCheckable(True)
+        self.btnReadable.setFocusPolicy(Qt.NoFocus)
+        self.btnReadable.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.btnReadable.setIconSize(QSize(16, 16))
+        self._updateReadableButton(settings.textEditor.get("readableMode", False))
+        self.btnReadable.toggled.connect(self._toggleReadableMode)
+        row1.addWidget(self.btnReadable)
+        row1.addStretch(1)
+
+        # Connections
+        self.btnUndo.clicked.connect(lambda: self._call("undo"))
+        self.btnRedo.clicked.connect(lambda: self._call("redo"))
         self.cmbStyle.activated.connect(self._applyStyle)
+        self.btnH1.clicked.connect(lambda: self._applyNamedStyle("Heading 1"))
+        self.btnH2.clicked.connect(lambda: self._applyNamedStyle("Heading 2"))
+        self.btnH3.clicked.connect(lambda: self._applyNamedStyle("Heading 3"))
         self.btnBold.clicked.connect(lambda: self._call("bold"))
         self.btnItalic.clicked.connect(lambda: self._call("italic"))
         self.btnStrike.clicked.connect(lambda: self._call("strike"))
+        self.btnQuote.clicked.connect(lambda: self._applyNamedStyle("Quote"))
+        self.btnBulletList.clicked.connect(lambda: self._applyNamedStyle("Bullet list"))
+        self.btnNumberedList.clicked.connect(lambda: self._applyNamedStyle("Numbered list"))
+
         self.cmbFont.activated.connect(self._settingsChanged)
         self.spnSize.valueChanged.connect(self._settingsChanged)
         self.cmbAlign.activated.connect(self._settingsChanged)
@@ -144,18 +215,31 @@ class FormatBar(QFrame):
         s.setFrameShadow(QFrame.Sunken)
         return s
 
-    def _button(self, text, tip, bold=False, italic=False, strike=False):
+    def _iconBtn(self, icon_name, tip):
         b = QToolButton()
-        b.setText(text)
+        b.setIcon(modernIcon(icon_name, 17))
+        b.setIconSize(QSize(17, 17))
         b.setToolTip(tip)
-        b.setFocusPolicy(Qt.NoFocus)      # keep the cursor in the editor
-        f = QFont(b.font())
-        f.setBold(bold)
-        f.setItalic(italic)
-        f.setStrikeOut(strike)
-        b.setFont(f)
-        b.setMinimumWidth(30)
+        b.setFocusPolicy(Qt.NoFocus)
+        b.setMinimumSize(30, 28)
         return b
+
+    def _setAlignmentIndex(self, index):
+        self.cmbAlign.setCurrentIndex(index)
+        self._syncAlignmentButtons(index)
+        self._settingsChanged()
+
+    def _syncAlignmentButtons(self, active_idx):
+        for idx, b in enumerate((self.btnAlignLeft, self.btnAlignCenter,
+                                 self.btnAlignRight, self.btnAlignJustify)):
+            b.blockSignals(True)
+            b.setChecked(idx == active_idx)
+            b.blockSignals(False)
+
+    def _applyNamedStyle(self, style_name):
+        if style_name in STYLES:
+            self.cmbStyle.setCurrentIndex(STYLES.index(style_name))
+            self._applyStyle()
 
     # ------------------------------------------------------- target view
     def _focusChanged(self, old, new):
@@ -221,7 +305,6 @@ class FormatBar(QFrame):
         cur.endEditBlock()
         v.setFocus()
 
-
     def _settingsChanged(self, *_a):
         if self._updating:
             return
@@ -232,6 +315,7 @@ class FormatBar(QFrame):
         f.setPointSize(self.spnSize.value())
         o["font"] = f.toString()
         o["textAlignment"] = self.cmbAlign.currentIndex()
+        self._syncAlignmentButtons(o["textAlignment"])
         o["lineSpacing"] = self.cmbSpacing.currentData() or o["lineSpacing"]
         o["spacingBelow"] = self.spnPara.value()
         o["indent"] = self.chkIndent.isChecked()
@@ -285,6 +369,7 @@ class FormatBar(QFrame):
         self.cmbFont.setCurrentFont(f)
         self.spnSize.setValue(f.pointSize() if f.pointSize() > 0 else 12)
         self.cmbAlign.setCurrentIndex(o["textAlignment"])
+        self._syncAlignmentButtons(o["textAlignment"])
         # A custom line spacing gets its own entry so nothing is hidden.
         while self.cmbSpacing.count() > len(SPACINGS):
             self.cmbSpacing.removeItem(self.cmbSpacing.count() - 1)
@@ -306,11 +391,13 @@ class FormatBar(QFrame):
     def _updateReadableButton(self, readable_on):
         self.btnReadable.setChecked(bool(readable_on))
         if readable_on:
+            self.btnReadable.setIcon(modernIcon("book-open", 16, accent=True))
             self.btnReadable.setText(self.tr("Readable"))
             self.btnReadable.setToolTip(
                 self.tr("Readable mode (Markdown syntax hidden on inactive lines — click for MD Code)")
             )
         else:
+            self.btnReadable.setIcon(modernIcon("code", 16))
             self.btnReadable.setText(self.tr("MD Code"))
             self.btnReadable.setToolTip(
                 self.tr("MD Code mode (all Markdown syntax visible — click for Readable mode)")

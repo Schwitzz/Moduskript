@@ -96,15 +96,11 @@ class mainEditor(QWidget, Ui_mainEditor):
 
         # self.tab.setDocumentMode(False)
 
-        # Bug in Qt < 5.5: doesn't always load icons from custom theme.
-        # Cf. https://github.com/qtproject/qtbase/commit/a8621a3f85e64f1252a80ae81a6e22554f7b3f44
-        # Since those are important, we provide fallback.
-        self.btnRedacFolderCork.setIcon(QIcon.fromTheme("view-cards",
-                                        QIcon(appPath(os.path.join("icons", "NumixMsk", "256x256", "actions", "view-cards.svg")))))
-        self.btnRedacFolderOutline.setIcon(QIcon.fromTheme("view-outline",
-                                           QIcon(appPath(os.path.join("icons", "NumixMsk", "256x256", "actions", "view-outline.svg")))))
-        self.btnRedacFolderText.setIcon(QIcon.fromTheme("view-text",
-                                        QIcon(appPath(os.path.join("icons", "NumixMsk", "256x256", "actions", "view-text.svg")))))
+        from manuskript.ui.modernIcons import icon as modernIcon
+        self.btnRedacFolderCork.setIcon(modernIcon("cards", 18))
+        self.btnRedacFolderOutline.setIcon(modernIcon("list-tree", 18))
+        self.btnRedacFolderText.setIcon(modernIcon("file-text", 18))
+        self.btnRedacFullscreen.setIcon(modernIcon("maximize", 18))
 
         for btn in [self.btnRedacFolderCork, self.btnRedacFolderText, self.btnRedacFolderOutline]:
             btn.setToolTip(btn.text())

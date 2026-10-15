@@ -180,17 +180,20 @@ def test_ai_dock_undock_and_redock_button(MWSampleProject):
     MW = MWSampleProject
     dock = MW.dckAI
     dock.show()
+    # Native dock titlebar is replaced with a dummy widget so 'X' close / tiny float target are removed
+    assert dock.titleBarWidget() is not None
     assert not dock.isFloating()
-    assert dock.btnDock.text() == "Undock"
+    assert dock.btnDock.property("dockState") == "undock"
+    assert not dock.btnDock.icon().isNull()
 
     # Click to undock (float)
     dock.toggleFloating()
     assert dock.isFloating()
-    assert dock.btnDock.text() == "Dock"
+    assert dock.btnDock.property("dockState") == "dock"
 
     # Click to re-dock back into the main window
     dock.toggleFloating()
     assert not dock.isFloating()
-    assert dock.btnDock.text() == "Undock"
+    assert dock.btnDock.property("dockState") == "undock"
     dock.hide()
 

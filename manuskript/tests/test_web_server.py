@@ -98,12 +98,35 @@ def test_web_server_manager_start_health_and_stop(tmp_path):
     old_data = WebServerConfig.dataDir()
     try:
         WebServerConfig.setPort(8791)
-        WebServerConfig.setDataDir(str(tmp_path / "web_data"))
+        # Simulate user choosing a single project folder directly (Bug #1 scenario):
+        # e.g. /tmp/.../my_custom_folder/EpicNovel (containing infos.txt and outline/)
+        custom_parent = tmp_path / "my_custom_folder"
+        single_proj = custom_parent / "EpicNovel"
+        (single_proj / "outline").mkdir(parents=True)
+        (single_proj / "infos.txt").write_text("Title:          Epic Novel\n", encoding="utf8")
+
+        WebServerConfig.setDataDir(str(single_proj))
+        assert WebServerConfig.sharedProjectsDir() == str(custom_parent)
 
         mgr = WebServerManager()
         started = mgr.start(wait_ready=True, timeout=10.0)
         assert started is True
         assert mgr.isRunning() is True
+
+        # Create an account on the running server and verify /api/projects lists "EpicNovel"!
+        import requests
+        s = requests.Session()
+        r_setup = s.post(
+            "http://127.0.0.1:8791/api/auth/setup",
+            headers={"x-allow-local-signup": "1"},
+            json={"username": "tester", "password": "correct horse battery"},
+            timeout=5,
+        )
+        assert r_setup.status_code == 200
+        r_projs = s.get("http://127.0.0.1:8791/api/projects", timeout=5)
+        assert r_projs.status_code == 200
+        proj_names = [p["name"] for p in r_projs.json()["projects"]]
+        assert "EpicNovel" in proj_names
 
         stopped = mgr.stop()
         assert stopped is True

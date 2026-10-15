@@ -50,6 +50,51 @@ def _set(name, value):
     s.sync()
 
 
+def _is_project_folder(path: Path) -> bool:
+    """Return True if `path` is itself a single Manuskript/Moduskript project folder."""
+    if not path.is_dir():
+        return False
+    if (path / "MANUSKRIPT").is_file():
+        return True
+    if (path / "infos.txt").is_file() and (path / "outline").is_dir():
+        return True
+    return False
+
+
+def resolve_projects_dir(raw_path: str) -> str:
+    """Smartly resolve a user-picked folder into the directory containing project folders.
+
+    Handles all 3 cases:
+    1. User picked a single `<Project>` folder (e.g., `/path/to/MyNovel` containing `MANUSKRIPT`
+       or `infos.txt` + `outline/`): returns its parent directory (`/path/to`).
+    2. User picked a `<data>` root folder that has a `projects/` subdirectory (and no projects
+       directly at `<data>` root): returns `<data>/projects`.
+    3. User picked a folder that directly contains projects (`.msk` files or `<Project>/MANUSKRIPT`
+       subfolders) or an empty folder intended to hold projects: returns that folder itself.
+    """
+    if not raw_path or not str(raw_path).strip():
+        return os.path.join(DEFAULT_WEB_REPO, "data", "projects")
+    p = Path(str(raw_path).strip()).expanduser().resolve()
+    if p.is_file() and p.suffix == ".msk":
+        return str(p.parent)
+    if _is_project_folder(p):
+        return str(p.parent)
+    sub_projects = p / "projects"
+    if sub_projects.is_dir():
+        has_direct_projects = any(
+            (child.is_dir() and _is_project_folder(child)) or (child.is_file() and child.suffix == ".msk")
+            for child in p.iterdir()
+            if not child.name.startswith(".") and child.name != "projects"
+        )
+        if not has_direct_projects:
+            return str(sub_projects)
+    try:
+        p.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+    return str(p)
+
+
 class WebServerConfig:
     """Persistent configuration in QSettings group 'WebServer'."""
 
@@ -115,28 +160,51 @@ class WebServerConfig:
 
     @staticmethod
     def setDataDir(path):
-        _set("dataDir", str(path or "").strip())
+        clean = str(path or "").strip()
+        _set("dataDir", clean)
+
+    @staticmethod
+    def appDataDir():
+        """Directory holding `app/` (SQLite DB, AI chats) and `templates/`."""
+        raw = WebServerConfig.dataDir()
+        p = Path(raw).expanduser().resolve()
+        if p.name == "projects":
+            return str(p.parent)
+        if _is_project_folder(p):
+            return os.path.join(WebServerConfig.webRepoPath(), "data")
+        if (p / "app").is_dir() or (p / "projects").is_dir():
+            return str(p)
+        # If user pointed dataDir at an arbitrary projects folder (e.g. ~/Documents/Novels),
+        # keep app.db in the web repo data dir (or user writablePath) so auth DB is never lost.
+        repo_data = os.path.join(WebServerConfig.webRepoPath(), "data")
+        if os.path.isdir(repo_data) and os.access(repo_data, os.W_OK):
+            return repo_data
+        return writablePath("web_data")
 
     @staticmethod
     def sharedProjectsDir():
-        pdir = os.path.join(WebServerConfig.dataDir(), "projects")
+        raw = WebServerConfig.dataDir()
+        resolved = resolve_projects_dir(raw)
         try:
-            os.makedirs(pdir, exist_ok=True)
+            os.makedirs(resolved, exist_ok=True)
         except OSError:
             pass
-        return pdir
+        return resolved
 
 
 def ensure_commingled_project_markers(projects_dir=None):
     """Ensure every project in `projects_dir` has both `<Name>/MANUSKRIPT` and `<Name>.msk`.
 
+    - If `projects_dir` is itself a single project folder, syncs its parent folder so both
+      `<Name>.msk` and `<Name>/MANUSKRIPT` exist side by side.
     - Projects created in the Web App have `<Name>/MANUSKRIPT` on disk; creating `<Name>.msk`
-      allows Desktop Manuskript to open them directly.
-    - Projects saved in Desktop Manuskript as a folder have `<Name>.msk` + `<Name>/`; ensuring
+      allows Desktop Moduskript to open them directly.
+    - Projects saved in Desktop Moduskript as a folder have `<Name>.msk` + `<Name>/`; ensuring
       `<Name>/MANUSKRIPT` allows the Web Server to list and open them immediately.
     Returns a list of `.msk` file paths found/synced in `projects_dir`.
     """
-    root = Path(projects_dir or WebServerConfig.sharedProjectsDir())
+    target_dir = resolve_projects_dir(projects_dir) if projects_dir else WebServerConfig.sharedProjectsDir()
+    root = Path(target_dir)
     if not root.is_dir():
         return []
     msk_files = []
@@ -147,17 +215,16 @@ def ensure_commingled_project_markers(projects_dir=None):
             if entry.is_dir():
                 marker_inside = entry / "MANUSKRIPT"
                 msk_outside = root / f"{entry.name}.msk"
+                if _is_project_folder(entry) and not marker_inside.exists():
+                    try:
+                        marker_inside.write_text("1", encoding="utf8")
+                    except OSError:
+                        pass
                 if marker_inside.is_file() and not msk_outside.exists():
                     try:
                         msk_outside.write_text("1", encoding="utf8")
                     except OSError:
                         pass
-                elif msk_outside.is_file() and not marker_inside.exists():
-                    if (entry / "infos.txt").exists() or (entry / "outline").is_dir():
-                        try:
-                            marker_inside.write_text("1", encoding="utf8")
-                        except OSError:
-                            pass
                 if msk_outside.is_file() and marker_inside.is_file():
                     msk_files.append(str(msk_outside))
     except OSError:
@@ -225,7 +292,7 @@ class WebServerManager(QObject):
             pass
         return False
 
-    def _readSavedPid(self):
+    def _readSavedPidInfo(self):
         pf = self.pidFilePath()
         if not os.path.isfile(pf):
             return None
@@ -234,16 +301,25 @@ class WebServerManager(QObject):
             pid = int(data.get("pid", 0))
             if pid > 0:
                 os.kill(pid, 0)
-                return pid
+                return data
         except Exception:
             pass
         return None
+
+    def _readSavedPid(self):
+        info = self._readSavedPidInfo()
+        return int(info["pid"]) if info and "pid" in info else None
 
     def _writePid(self, pid):
         pf = self.pidFilePath()
         try:
             Path(pf).write_text(
-                json.dumps({"pid": pid, "port": WebServerConfig.port(), "at": time.time()}),
+                json.dumps({
+                    "pid": pid,
+                    "port": WebServerConfig.port(),
+                    "projects_dir": WebServerConfig.sharedProjectsDir(),
+                    "at": time.time(),
+                }),
                 encoding="utf8",
             )
         except OSError:
@@ -269,12 +345,20 @@ class WebServerManager(QObject):
             return [uv_bin, "run", "uvicorn"]
         return [sys.executable, "-m", "uvicorn"]
 
-    def start(self, wait_ready=True, timeout=8.0):
-        """Start the FastAPI/Uvicorn web server if not already running."""
+    def start(self, wait_ready=True, timeout=8.0, force_restart=False):
+        """Start the FastAPI/Uvicorn web server (restarting if projects_dir changed)."""
         ensure_commingled_project_markers()
+        wanted_projects_dir = WebServerConfig.sharedProjectsDir()
+
         if self.isRunning():
-            self.statusChanged.emit(True, f"Running on port {WebServerConfig.port()}")
-            return True
+            saved_info = self._readSavedPidInfo()
+            if force_restart or (
+                saved_info and saved_info.get("projects_dir") != wanted_projects_dir
+            ):
+                self.stop()
+            else:
+                self.statusChanged.emit(True, f"Running on port {WebServerConfig.port()}")
+                return True
 
         repo = WebServerConfig.webRepoPath()
         server_dir = os.path.join(repo, "server")
@@ -285,16 +369,17 @@ class WebServerManager(QObject):
             return False
 
         static_dir = os.path.join(repo, "web", "build")
-        data_dir = WebServerConfig.dataDir()
-        os.makedirs(os.path.join(data_dir, "projects"), exist_ok=True)
-        os.makedirs(os.path.join(data_dir, "app"), exist_ok=True)
-        os.makedirs(os.path.join(data_dir, "templates"), exist_ok=True)
+        app_data_dir = WebServerConfig.appDataDir()
+        os.makedirs(wanted_projects_dir, exist_ok=True)
+        os.makedirs(os.path.join(app_data_dir, "app"), exist_ok=True)
+        os.makedirs(os.path.join(app_data_dir, "templates"), exist_ok=True)
 
         port = WebServerConfig.port()
         host = WebServerConfig.host()
 
         env = os.environ.copy()
-        env["MSK_DATA_DIR"] = data_dir
+        env["MSK_DATA_DIR"] = app_data_dir
+        env["MSK_PROJECTS_DIR_OVERRIDE"] = wanted_projects_dir
         env["MSK_COOKIE_SECURE"] = "false"
         if os.path.isdir(static_dir):
             env["MSK_STATIC_DIR"] = static_dir
@@ -309,7 +394,6 @@ class WebServerManager(QObject):
 
         log_fh = open(self.logFilePath(), "ab")
         try:
-            # Start in a new session so it can continue running in the background when the GUI closes
             self._proc = subprocess.Popen(
                 cmd,
                 cwd=server_dir,
@@ -343,8 +427,12 @@ class WebServerManager(QObject):
         )
         return running
 
+    def restart(self, wait_ready=True, timeout=8.0):
+        self.stop()
+        return self.start(wait_ready=wait_ready, timeout=timeout, force_restart=True)
+
     def stop(self):
-        """Stop the running web server (owned process or saved background PID)."""
+        """Stop the running web server (owned process, saved PID, or port listener)."""
         pid = None
         if self._proc is not None and self._proc.poll() is None:
             pid = self._proc.pid
@@ -380,8 +468,8 @@ class WebServerManager(QObject):
         return not self.isRunning(timeout=0.2)
 
     def openInBrowser(self, project_name=None):
-        if not self.isRunning():
-            self.start(wait_ready=True)
+        ensure_commingled_project_markers()
+        self.start(wait_ready=True)
         openURL(self.serverUrl(project_name))
 
 
@@ -456,11 +544,11 @@ class WebServerSettingsPage(QScrollArea):
         self.btnBrowseDataDir.clicked.connect(self._browseDataDir)
         data_row.addWidget(self.txtDataDir, 1)
         data_row.addWidget(self.btnBrowseDataDir)
-        f_paths.addRow(self.tr("Shared Data Directory:"), data_row)
+        f_paths.addRow(self.tr("Projects / Data Folder:"), data_row)
 
         self.lblProjectsDirInfo = QLabel()
         self.lblProjectsDirInfo.setWordWrap(True)
-        f_paths.addRow(self.tr("Commingled Projects Folder:"), self.lblProjectsDirInfo)
+        f_paths.addRow(self.tr("Active Commingled Projects Folder:"), self.lblProjectsDirInfo)
 
         self.btnSyncMarkers = QPushButton(self.tr("Sync Shared Project Markers Now"))
         self.btnSyncMarkers.clicked.connect(self._syncMarkersNow)
@@ -492,23 +580,33 @@ class WebServerSettingsPage(QScrollArea):
 
     def _onDataDirChanged(self):
         WebServerConfig.setDataDir(self.txtDataDir.text())
-        self.lblProjectsDirInfo.setText(WebServerConfig.sharedProjectsDir())
-        ensure_commingled_project_markers()
+        resolved = WebServerConfig.sharedProjectsDir()
+        self.lblProjectsDirInfo.setText(resolved)
+        ensure_commingled_project_markers(resolved)
+        if self.manager.isRunning(timeout=0.2):
+            self.manager.restart(wait_ready=True)
 
     def _browseDataDir(self):
         d = QFileDialog.getExistingDirectory(
-            self, self.tr("Select Shared Data Directory"), self.txtDataDir.text()
+            self, self.tr("Select Projects or Data Folder"), self.txtDataDir.text()
         )
         if d:
             self.txtDataDir.setText(d)
             self._onDataDirChanged()
 
     def _syncMarkersNow(self):
-        found = ensure_commingled_project_markers()
+        WebServerConfig.setDataDir(self.txtDataDir.text())
+        resolved = WebServerConfig.sharedProjectsDir()
+        self.lblProjectsDirInfo.setText(resolved)
+        found = ensure_commingled_project_markers(resolved)
         if self.mw and hasattr(self.mw, "welcome"):
             self.mw.welcome.populateTemplates()
+        if self.manager.isRunning(timeout=0.2):
+            self.manager.restart(wait_ready=True)
+        names = [os.path.basename(p)[:-4] for p in found]
+        summary = ", ".join(names) if names else self.tr("none found")
         self.lblStatusBadge.setText(
-            self.tr("Synced %d commingled project(s)") % len(found)
+            self.tr("Synced %d project(s) (%s)") % (len(found), summary)
         )
 
     def _onStartClicked(self):

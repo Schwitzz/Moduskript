@@ -16,6 +16,7 @@ from manuskript.ai.config import AISettings, ROLES
 from manuskript.ai.context import assemble, gather, SOURCES
 from manuskript.ai.workers import ChatWorker, ModelsWorker
 from manuskript.functions import writablePath
+from manuskript.ui.modernIcons import icon as modernIcon, pixmap as modernPixmap
 
 RESERVE_TOKENS = 1024   # kept free for the reply (local server only)
 
@@ -70,40 +71,83 @@ class AIDock(QDockWidget):
 
     # ------------------------------------------------------------ UI
     def _buildUi(self):
+        # Hide the native QDockWidget titlebar so there is no redundant 'X' close button
+        # or tiny native float target; we provide a clean icon-driven header inside.
+        self.setTitleBarWidget(QWidget(self))
+
         w = QWidget()
         v = QVBoxLayout(w)
-        v.setContentsMargins(4, 4, 4, 4)
+        v.setContentsMargins(6, 6, 6, 6)
+        v.setSpacing(6)
 
+        # Row 1: Chat selector + Icon buttons (New, Delete, Dock/Undock)
         row = QHBoxLayout()
+        row.setSpacing(4)
+        lbl_chat_icon = QLabel()
+        lbl_chat_icon.setPixmap(modernPixmap("sparkles", 16, accent=True))
+        lbl_chat_icon.setToolTip(self.tr("Recent Chats"))
+        row.addWidget(lbl_chat_icon)
+
         self.cmbChats = _wideCombo()
-        self.btnNew = QPushButton(self.tr("New"))
-        self.btnDel = QPushButton(self.tr("Del"))
-        self.btnDock = QPushButton(self.tr("Undock"))
+        self.cmbChats.setToolTip(self.tr("Select chat conversation"))
+
+        self.btnNew = QPushButton()
+        self.btnNew.setIcon(modernIcon("plus", 16))
+        self.btnNew.setFixedSize(30, 30)
+        self.btnNew.setToolTip(self.tr("New chat"))
+
+        self.btnDel = QPushButton()
+        self.btnDel.setIcon(modernIcon("trash", 16))
+        self.btnDel.setFixedSize(30, 30)
+        self.btnDel.setToolTip(self.tr("Delete current chat"))
+
+        self.btnDock = QPushButton()
+        self.btnDock.setFixedSize(30, 30)
         self.btnDock.setToolTip(self.tr("Dock or undock the AI Assistant panel"))
+
         row.addWidget(self.cmbChats, 1)
         row.addWidget(self.btnNew)
         row.addWidget(self.btnDel)
         row.addWidget(self.btnDock)
         v.addLayout(row)
 
+        # Row 2: Provider & Role with icons instead of text labels
         row = QHBoxLayout()
+        row.setSpacing(4)
+        lbl_prov = QLabel()
+        lbl_prov.setPixmap(modernPixmap("server", 15))
+        lbl_prov.setToolTip(self.tr("AI Provider"))
         self.cmbProvider = _wideCombo()
         self.cmbProvider.addItems(P.PROVIDERS)
+        self.cmbProvider.setToolTip(self.tr("AI Provider"))
+
+        lbl_role = QLabel()
+        lbl_role.setPixmap(modernPixmap("user-check", 15))
+        lbl_role.setToolTip(self.tr("AI Role Persona"))
         self.cmbRole = _wideCombo()
         self.cmbRole.addItems(ROLES)
-        row.addWidget(QLabel(self.tr("Provider")))
+        self.cmbRole.setToolTip(self.tr("AI Role Persona"))
+
+        row.addWidget(lbl_prov)
         row.addWidget(self.cmbProvider, 1)
-        row.addWidget(QLabel(self.tr("Role")))
+        row.addWidget(lbl_role)
         row.addWidget(self.cmbRole, 1)
         v.addLayout(row)
 
+        # Row 3: Model selector + Refresh icon button
         row = QHBoxLayout()
+        row.setSpacing(4)
+        lbl_model = QLabel()
+        lbl_model.setPixmap(modernPixmap("cpu", 15))
+        lbl_model.setToolTip(self.tr("Model"))
         self.cmbModel = _wideCombo()
         self.cmbModel.setEditable(True)
-        self.btnRefresh = QPushButton("\u21bb")
-        self.btnRefresh.setFixedWidth(32)
+        self.cmbModel.setToolTip(self.tr("Active LLM Model"))
+        self.btnRefresh = QPushButton()
+        self.btnRefresh.setIcon(modernIcon("refresh", 15))
+        self.btnRefresh.setFixedSize(30, 30)
         self.btnRefresh.setToolTip(self.tr("Refresh model list"))
-        row.addWidget(QLabel(self.tr("Model")))
+        row.addWidget(lbl_model)
         row.addWidget(self.cmbModel, 1)
         row.addWidget(self.btnRefresh)
         v.addLayout(row)
@@ -116,17 +160,29 @@ class AIDock(QDockWidget):
         row = QHBoxLayout()
         self.lblStatus = QLabel("")
         self.lblStatus.setWordWrap(True)
-        self.btnCancel = QPushButton(self.tr("Cancel"))
+        self.btnCancel = QPushButton()
+        self.btnCancel.setIcon(modernIcon("stop", 14))
+        self.btnCancel.setText(self.tr("Stop"))
+        self.btnCancel.setToolTip(self.tr("Cancel generation"))
         self.btnCancel.setVisible(False)
         row.addWidget(self.lblStatus, 1)
         row.addWidget(self.btnCancel)
         v.addLayout(row)
 
+        # Input row with Send icon button
+        inp_row = QHBoxLayout()
+        inp_row.setSpacing(4)
         self.txtInput = _SendEdit()
-        self.txtInput.setFixedHeight(80)
+        self.txtInput.setFixedHeight(74)
         self.txtInput.setPlaceholderText(
             self.tr("Ask the AI... (Enter to send, Shift+Enter for a new line)"))
-        v.addWidget(self.txtInput)
+        self.btnSend = QPushButton()
+        self.btnSend.setIcon(modernIcon("send", 16, accent=True))
+        self.btnSend.setFixedSize(34, 74)
+        self.btnSend.setToolTip(self.tr("Send message (Enter)"))
+        inp_row.addWidget(self.txtInput, 1)
+        inp_row.addWidget(self.btnSend)
+        v.addLayout(inp_row)
         self.setWidget(w)
 
         self.btnNew.clicked.connect(self.newChat)
@@ -135,6 +191,7 @@ class AIDock(QDockWidget):
         self.topLevelChanged.connect(self._updateDockButton)
         self.btnCancel.clicked.connect(self.cancel)
         self.btnRefresh.clicked.connect(self.refreshModels)
+        self.btnSend.clicked.connect(self.send)
         self.txtInput.submit.connect(self.send)
         self.cmbChats.activated.connect(self._chatPicked)
         self.cmbProvider.activated.connect(self._providerPicked)
@@ -154,10 +211,12 @@ class AIDock(QDockWidget):
 
     def _updateDockButton(self, is_floating=False):
         if is_floating:
-            self.btnDock.setText(self.tr("Dock"))
+            self.btnDock.setIcon(modernIcon("dock", 16, accent=True))
+            self.btnDock.setProperty("dockState", "dock")
             self.btnDock.setToolTip(self.tr("Re-dock AI Assistant into main window"))
         else:
-            self.btnDock.setText(self.tr("Undock"))
+            self.btnDock.setIcon(modernIcon("undock", 16))
+            self.btnDock.setProperty("dockState", "undock")
             self.btnDock.setToolTip(self.tr("Detach AI Assistant into a floating window"))
 
     # ------------------------------------------------------ settings sync
