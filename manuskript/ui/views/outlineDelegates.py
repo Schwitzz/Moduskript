@@ -32,6 +32,16 @@ class outlineTitleDelegate(QStyledItemDelegate):
         iconRect = style.subElementRect(style.SE_ItemViewItemDecoration, opt, None)
         textRect = style.subElementRect(style.SE_ItemViewItemText, opt, None)
 
+        # Visually indent scenes that sit beneath a .md Chapter sibling (parity with Web outline)
+        from manuskript.functions import mainWindow
+        from manuskript.functions.outlineHelpers import sibling_depth_offset
+        mw = mainWindow()
+        mdl_labels = getattr(mw, "mdlLabels", None) if mw else None
+        if sibling_depth_offset(item, mdl_labels) > 0:
+            indent_px = 18
+            iconRect = iconRect.adjusted(indent_px, 0, indent_px, 0)
+            textRect = textRect.adjusted(indent_px, 0, 0, 0)
+
         # Background
         style.drawPrimitive(style.PE_PanelItemViewItem, opt, painter)
 

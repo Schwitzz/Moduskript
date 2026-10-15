@@ -62,7 +62,8 @@ class Outline(IntEnum):
     textFormat = 15
     revisions = 16
     customIcon = 17
-    charCount = 18 
+    charCount = 18
+    associatedNotes = 19
 
 class Abstract(IntEnum):
     title = 0

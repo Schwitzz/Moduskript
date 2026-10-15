@@ -5,6 +5,7 @@ from PyQt5.QtCore import QModelIndex
 
 from manuskript.enums import Outline
 from manuskript.ui.views.metadataView_ui import Ui_metadataView
+from manuskript.ui.views.associatedNotesWidget import AssociatedNotesWidget
 from manuskript.ui import style
 
 class metadataView(QWidget, Ui_metadataView):
@@ -16,6 +17,9 @@ class metadataView(QWidget, Ui_metadataView):
         self.txtSummaryFull.setColumn(Outline.summaryFull)
         self.txtNotes.setColumn(Outline.notes)
         self.revisions.setEnabled(False)
+
+        self.associatedNotes = AssociatedNotesWidget(self.grpNotes)
+        self.horizontalLayout_29.addWidget(self.associatedNotes)
 
         self.txtSummarySentence.setStyleSheet(style.lineEditSS())
         self.txtSummaryFull.setStyleSheet(style.transparentSS() +
@@ -29,6 +33,7 @@ class metadataView(QWidget, Ui_metadataView):
         self.txtSummarySentence.setModel(mdlOutline)
         self.txtSummaryFull.setModel(mdlOutline)
         self.txtNotes.setModel(mdlOutline)
+        self.associatedNotes.setModel(mdlOutline)
         self.revisions.setModel(mdlOutline)
 
     def getIndexes(self, sourceView):
@@ -66,6 +71,7 @@ class metadataView(QWidget, Ui_metadataView):
             self.txtSummarySentence.setCurrentModelIndex(QModelIndex())
             self.txtSummaryFull.setCurrentModelIndex(QModelIndex())
             self.txtNotes.setCurrentModelIndex(QModelIndex())
+            self.associatedNotes.setCurrentModelIndex(QModelIndex())
 
         # One item selected
         elif len(indexes) == 1:
@@ -77,6 +83,7 @@ class metadataView(QWidget, Ui_metadataView):
             self.txtSummarySentence.setCurrentModelIndex(idx)
             self.txtSummaryFull.setCurrentModelIndex(idx)
             self.txtNotes.setCurrentModelIndex(idx)
+            self.associatedNotes.setCurrentModelIndex(idx)
             self.revisions.setEnabled(True)
             self.revisions.setCurrentModelIndex(idx)
 
@@ -92,6 +99,7 @@ class metadataView(QWidget, Ui_metadataView):
             self.txtSummarySentence.setCurrentModelIndex(QModelIndex())
             self.txtSummaryFull.setCurrentModelIndex(QModelIndex())
             self.txtNotes.setCurrentModelIndex(QModelIndex())
+            self.associatedNotes.setCurrentModelIndex(QModelIndex())
 
             # Behavior 2:
             # Allow edition of multiple indexes.

@@ -64,16 +64,39 @@ class outlineView(QTreeView, dndView, outlineBasics):
         self.header().setSectionResizeMode(Outline.wordCount, QHeaderView.ResizeToContents)
         self.header().setSectionResizeMode(Outline.goal, QHeaderView.ResizeToContents)
         self.header().setSectionResizeMode(Outline.goalPercentage, QHeaderView.ResizeToContents)
+        self.header().setSectionResizeMode(Outline.summarySentence, QHeaderView.Stretch)
+
+    def setViewMode(self, mode):
+        """Switch between 'tree' (minimal tree view) and 'table' (multi-column outline table)."""
+        self._viewMode = mode
+        if not self.model():
+            return
+        if mode == "tree":
+            for c in range(self.model().columnCount()):
+                self.hideColumn(c)
+            self.showColumn(Outline.title)
+            self.header().setVisible(False)
+        else:
+            self.header().setVisible(True)
+            self.hideColumns()
+            self.expandAll()
 
     def hideColumns(self):
         if not self.model():
             # outlineView is probably not initialized, because editorWidgets shows index cards or text.
             return
 
+        if getattr(self, "_viewMode", "table") == "tree":
+            for c in range(self.model().columnCount()):
+                self.hideColumn(c)
+            self.showColumn(Outline.title)
+            return
+
         for c in range(self.model().columnCount()):
             self.hideColumn(c)
         for c in settings.outlineViewColumns:
-            self.showColumn(c)
+            if c != Outline.notes:  # Notes column never shown inline in table (parity with Web)
+                self.showColumn(c)
 
     def setRootIndex(self, index):
         QTreeView.setRootIndex(self, index)

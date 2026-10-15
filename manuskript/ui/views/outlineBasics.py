@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # --!-- coding: utf8 --!--
-from PyQt5.QtCore import Qt, QSignalMapper, QSize
+from PyQt5.QtCore import Qt, QSignalMapper, QSize, QModelIndex
 from PyQt5.QtGui import QIcon, QCursor
 from PyQt5.QtWidgets import QAbstractItemView, qApp, QMenu, QAction, \
                             QListWidget, QWidgetAction, QListWidgetItem, \
@@ -84,18 +84,30 @@ class outlineBasics(QAbstractItemView):
 
         menu.addSeparator()
 
-        # Add text / folder
+        # Add text / folder / chapter / note
         self.actAddFolder = QAction(QIcon.fromTheme("folder-new"),
                                     safeTranslate(qApp, "outlineBasics", "New &Folder"),
                                     menu)
         self.actAddFolder.triggered.connect(self.addFolder)
         menu.addAction(self.actAddFolder)
 
+        self.actAddChapter = QAction(QIcon.fromTheme("address-book-new", QIcon.fromTheme("document-new")),
+                                     safeTranslate(qApp, "outlineBasics", "New &Chapter"),
+                                     menu)
+        self.actAddChapter.triggered.connect(self.addChapter)
+        menu.addAction(self.actAddChapter)
+
         self.actAddText = QAction(QIcon.fromTheme("document-new"),
-                                  safeTranslate(qApp, "outlineBasics", "New &Text"),
+                                  safeTranslate(qApp, "outlineBasics", "New &Scene / Text"),
                                   menu)
         self.actAddText.triggered.connect(self.addText)
         menu.addAction(self.actAddText)
+
+        self.actAddNote = QAction(QIcon.fromTheme("accessories-text-editor", QIcon.fromTheme("document-edit")),
+                                  safeTranslate(qApp, "outlineBasics", "Add Associated &Note..."),
+                                  menu)
+        self.actAddNote.triggered.connect(self.addAssociatedNoteDialog)
+        menu.addAction(self.actAddNote)
 
         menu.addSeparator()
 
@@ -265,23 +277,101 @@ class outlineBasics(QAbstractItemView):
             # FIXME: add smart rename
             pass
 
-    def addFolder(self):
-        self.addItem("folder")
+    def addFolder(self, title=None):
+        return self.addItem("folder", title=title)
 
-    def addText(self):
-        self.addItem("text")
+    def addChapter(self, title=None):
+        return self.addItem("chapter", title=title)
 
-    def addItem(self, _type="folder"):
+    def addText(self, title=None):
+        return self.addItem("text", title=title)
+
+    def addScene(self, title=None):
+        return self.addItem("scene", title=title)
+
+    def addAssociatedNoteDialog(self):
+        from manuskript.functions.outlineHelpers import add_associated_note
+        idx = self.currentIndex() if len(self.selectedIndexes()) > 0 else QModelIndex()
+        item = idx.internalPointer() if idx.isValid() else None
+        if item is None and self.model() and self.model().rootItem.children():
+            item = self.model().rootItem.children()[0]
+        if item is None:
+            return None
+        title, ok = QInputDialog.getText(
+            self,
+            safeTranslate(qApp, "outlineBasics", "Add Associated Note"),
+            safeTranslate(qApp, "outlineBasics", "Note title:"),
+        )
+        if not ok or not title.strip():
+            return None
+        text, ok2 = QInputDialog.getMultiLineText(
+            self,
+            safeTranslate(qApp, "outlineBasics", "Add Associated Note"),
+            safeTranslate(qApp, "outlineBasics", "Note content:"),
+        )
+        if not ok2:
+            return None
+        return add_associated_note(item, title.strip(), text)
+
+    def addItem(self, _type="folder", title=None):
+        from manuskript.functions.outlineHelpers import (
+            ensure_chapter_label_index,
+            resolve_placement_for_add,
+        )
+        mw = mainWindow()
+        mdl_labels = getattr(mw, "mdlLabels", None) if mw else None
+
+        active_item = None
+        if len(self.selectedIndexes()) > 0 and self.currentIndex().isValid():
+            active_item = self.currentIndex().internalPointer()
+
+        if _type in ("chapter", "scene"):
+            parent_idx, row = resolve_placement_for_add(
+                self.model(), mdl_labels, _type, active_item
+            )
+            default_title = (
+                safeTranslate(qApp, "outlineBasics", "New Chapter")
+                if _type == "chapter"
+                else safeTranslate(qApp, "outlineBasics", "New Scene")
+            )
+            item = outlineItem(
+                title=title if (isinstance(title, str) and title) else default_title,
+                _type=settings.defaultTextType,
+            )
+            if _type == "chapter" and mdl_labels is not None:
+                ch_label = ensure_chapter_label_index(mdl_labels)
+                if ch_label:
+                    item.setData(Outline.label, ch_label)
+            self.model().insertItem(item, row, parent_idx)
+            new_idx = self.model().indexFromItem(item)
+            if new_idx and new_idx.isValid():
+                self.setCurrentIndex(new_idx)
+            return item
+
         if len(self.selectedIndexes()) == 0:
             parent = self.rootIndex()
         else:
             parent = self.currentIndex()
 
         if _type == "text":
+            if active_item is not None and not active_item.isFolder():
+                parent_idx, row = resolve_placement_for_add(
+                    self.model(), mdl_labels, "scene", active_item
+                )
+                item = outlineItem(
+                    title=title if (isinstance(title, str) and title) else safeTranslate(qApp, "outlineBasics", "New"),
+                    _type=settings.defaultTextType,
+                )
+                self.model().insertItem(item, row, parent_idx)
+                return item
             _type = settings.defaultTextType
 
-        item = outlineItem(title=safeTranslate(qApp, "outlineBasics", "New"), _type=_type)
+        item = outlineItem(
+            title=title if (isinstance(title, str) and title) else safeTranslate(qApp, "outlineBasics", "New"),
+            _type=_type,
+        )
         self.model().appendItem(item, parent)
+        return item
 
     def copy(self):
         mimeData = self.model().mimeData(self.selectionModel().selectedIndexes())

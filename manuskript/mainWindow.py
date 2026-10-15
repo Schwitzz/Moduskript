@@ -375,6 +375,42 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def outlineRemoveItemsOutline(self):
         self.treeOutlineOutline.delete()
 
+    def _setupOutlineParityControls(self):
+        """Add Web-parity Outline controls: + Add menu (Folder, Chapter, Scene, Note) and Tree/Table view toggle."""
+        from PyQt5.QtWidgets import QPushButton, QToolButton
+        self.btnOutlineAddMenu = QToolButton(self.layoutWidget)
+        self.btnOutlineAddMenu.setText(self.tr("+ Add"))
+        self.btnOutlineAddMenu.setToolTip(self.tr("Add folder, chapter, scene, or associated note"))
+        self.btnOutlineAddMenu.setPopupMode(QToolButton.InstantPopup)
+        add_menu = QMenu(self.btnOutlineAddMenu)
+        add_menu.addAction(self.tr("Add folder"), self.treeOutlineOutline.addFolder)
+        add_menu.addAction(self.tr("Add chapter"), self.treeOutlineOutline.addChapter)
+        add_menu.addAction(self.tr("Add scene"), self.treeOutlineOutline.addScene)
+        add_menu.addSeparator()
+        add_menu.addAction(self.tr("Add note"), self.treeOutlineOutline.addAssociatedNoteDialog)
+        self.btnOutlineAddMenu.setMenu(add_menu)
+        self.horizontalLayout_18.insertWidget(0, self.btnOutlineAddMenu)
+
+        self.btnOutlineModeTree = QPushButton(self.tr("Tree"), self.layoutWidget)
+        self.btnOutlineModeTree.setCheckable(True)
+        self.btnOutlineModeTree.setFlat(True)
+        self.btnOutlineModeTree.setToolTip(self.tr("Tree view"))
+        self.btnOutlineModeTable = QPushButton(self.tr("Table"), self.layoutWidget)
+        self.btnOutlineModeTable.setCheckable(True)
+        self.btnOutlineModeTable.setChecked(True)
+        self.btnOutlineModeTable.setFlat(True)
+        self.btnOutlineModeTable.setToolTip(self.tr("Table view"))
+
+        def _set_mode(mode):
+            self.btnOutlineModeTree.setChecked(mode == "tree")
+            self.btnOutlineModeTable.setChecked(mode == "table")
+            self.treeOutlineOutline.setViewMode(mode)
+
+        self.btnOutlineModeTree.clicked.connect(lambda: _set_mode("tree"))
+        self.btnOutlineModeTable.clicked.connect(lambda: _set_mode("table"))
+        self.horizontalLayout_18.addWidget(self.btnOutlineModeTree)
+        self.horizontalLayout_18.addWidget(self.btnOutlineModeTable)
+
     ###############################################################################
     # CHARACTERS
     ###############################################################################
@@ -1295,6 +1331,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.btnOutlineAddText.clicked.connect(self.treeOutlineOutline.addText, F.AUC)
         self.btnRedacRemoveItem.clicked.connect(self.outlineRemoveItemsRedac, F.AUC)
         self.btnOutlineRemoveItem.clicked.connect(self.outlineRemoveItemsOutline, F.AUC)
+        self._setupOutlineParityControls()
 
         self.tabMain.currentChanged.connect(self.toolbar.setCurrentGroup)
         self.tabMain.currentChanged.connect(self.tabMainChanged)

@@ -130,6 +130,13 @@ class outlineItem(abstractItem, searchableItem):
             if self.isFolder():
                 return QIcon.fromTheme("folder")
             elif self.isText():
+                from manuskript.functions.outlineHelpers import is_chapter_item
+                mw = F.mainWindow()
+                mdl_labels = getattr(mw, "mdlLabels", None) if mw else None
+                if is_chapter_item(self, mdl_labels):
+                    icon = QIcon.fromTheme("address-book-new", QIcon.fromTheme("x-office-address-book"))
+                    if not icon.isNull():
+                        return icon
                 return QIcon.fromTheme("text-x-generic")
 
         elif role == Qt.CheckStateRole and column == E.compile:

@@ -227,6 +227,8 @@ class abstractModel(QAbstractItemModel):
                 return self.tr("Goal")
             elif section == Outline.goalPercentage:
                 return "%"
+            elif section == Outline.summarySentence:
+                return self.tr("Summary")
             else:
                 return [i.name for i in Outline][section]
 
