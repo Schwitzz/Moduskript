@@ -55,7 +55,7 @@ class editorWidget(QWidget, Ui_editorWidget_ui):
         self.txtRedacText.setHighlighting(True)
         self.currentDict = ""
         self.spellcheck = settings.spellcheck
-        self.folderView = "cork"
+        self.folderView = "outline"
         self.mw = mainWindow()
         self._tabWidget = None  # set by mainEditor on creation
 
@@ -94,9 +94,7 @@ class editorWidget(QWidget, Ui_editorWidget_ui):
 
     def setFolderView(self, v):
         oldV = self.folderView
-        if v == "cork":
-            self.folderView = "cork"
-        elif v == "outline":
+        if v in ("outline", "cork"):
             self.folderView = "outline"
         else:
             self.folderView = "text"

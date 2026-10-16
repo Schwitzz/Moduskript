@@ -88,11 +88,11 @@ class MarkdownTokenizer(HighlightTokenizer):
     numberedNestedListRegex = QRegExp("^\\s*[0-9a-z]+[.)]\\s+.*$")
     hruleRegex = QRegExp("\\s*(\\*\\s*){3,}|(\\s*(_\\s*){3,})|((\\s*(-\\s*){3,}))")
     lineBreakRegex = QRegExp(".*\\s{2,}$")
-    emphasisRegex = QRegExp("(\\*(?![\\s*]).*[^\\s*]\\*)|_(?![\\s_]).*[^\\s_]_")
+    emphasisRegex = QRegExp("(\\*[^*]+\\*)|(_[^_]+_)")
     emphasisRegex.setMinimal(True)
-    strongRegex = QRegExp("\\*\\*(?=\\S).*\\S\\*\\*(?!\\*)|__(?=\\S).*\\S__(?!_)")
+    strongRegex = QRegExp("(\\*\\*[^*]+\\*\\*)|(__[^_]+__)")
     strongRegex.setMinimal(True)
-    strikethroughRegex = QRegExp("~~[^\\s]+.*[^\\s]+~~")
+    strikethroughRegex = QRegExp("~~[^~]+~~")
     strikethroughRegex.setMinimal(True)
     superScriptRegex = QRegExp(r"\^([^\s]|(\\\\\s))+\^")  # Spaces must be escaped "\ "
     superScriptRegex.setMinimal(True)
@@ -147,8 +147,7 @@ class MarkdownTokenizer(HighlightTokenizer):
                                  MS.MarkdownStateNumberedList,
                                  MS.MarkdownStateBulletPointList]:
                 self.setState(MS.MarkdownStateListLineBreak)
-            elif previousState != MS.MarkdownStateCodeBlock or \
-                (text[:1] != "\t" and text[-4:] != "    "):
+            else:
                 self.setState(MS.MarkdownStateParagraphBreak)
 
         elif self.tokenizeSetextHeadingLine2(text) or \
@@ -168,17 +167,7 @@ class MarkdownTokenizer(HighlightTokenizer):
             self.tokenizeInline(text)
 
         else:
-            if previousState in [MS.MarkdownStateListLineBreak,
-                                 MS.MarkdownStateNumberedList,
-                                 MS.MarkdownStateNumberedList]:
-                if not self.tokenizeNumberedList(text) and \
-                   not self.tokenizeBulletPointList(text) and \
-                   (text[:1] == "\t" or text[:4] == "    "):
-                    self.setState(previousState)
-                else:
-                    self.setState(MS.MarkdownStateParagraph)
-            else:
-                self.setState(MS.MarkdownStateParagraph)
+            self.setState(MS.MarkdownStateParagraph)
             self.tokenizeLineBreak(text)
             self.tokenizeInline(text)
 
@@ -271,30 +260,35 @@ class MarkdownTokenizer(HighlightTokenizer):
         escapedText = self.dummyOutEscapeCharacters(text)
         trailingPoundCount = 0
         level = 0
+        lead = 0
+        while lead < len(escapedText) and escapedText[lead] in (" ", "\t"):
+            lead += 1
 
-        #Count the number of pound signs at the front of the string,
-        #up to the maximum allowed, to determine the heading level.
-
-        while escapedText[level] == "#":
+        # Count the number of pound signs after optional leading whitespace,
+        # up to the maximum allowed, to determine the heading level.
+        while (lead + level) < len(escapedText) and escapedText[lead + level] == "#":
             level += 1
-            if level >= len(escapedText) or level >= self.MAX_MARKDOWN_HEADING_LEVEL:
+            if level >= self.MAX_MARKDOWN_HEADING_LEVEL:
                 break
 
-        if level > 0 and level < len(text):
+        if level > 0 and (lead + level) < len(text):
             # Count how many pound signs are at the end of the text.
-            # Ignore starting pound signs when calculating trailing signs
-            while level + trailingPoundCount < len(text) and \
-                    escapedText[-trailingPoundCount -1] == "#":
+            while (lead + level + trailingPoundCount) < len(text) and \
+                    escapedText[-trailingPoundCount - 1] == "#":
                 trailingPoundCount += 1
+
+            open_len = lead + level
+            if open_len < len(text) and text[open_len] == " ":
+                open_len += 1
 
             token = Token()
             token.position = 0
             token.length = len(text)
-            token.type = MTT.TokenAtxHeading1 + level -1
-            token.openingMarkupLength = level
+            token.type = MTT.TokenAtxHeading1 + level - 1
+            token.openingMarkupLength = open_len
             token.closingMarkupLength = trailingPoundCount
             self.addToken(token)
-            self.setState(MS.MarkdownStateAtxHeading1 + level -1)
+            self.setState(MS.MarkdownStateAtxHeading1 + level - 1)
             return True
         return False
 
@@ -519,20 +513,6 @@ class MarkdownTokenizer(HighlightTokenizer):
                 token.length = len(text)
                 self.addToken(token)
 
-            return True
-
-        elif previousState in [
-                MS.MarkdownStateCodeBlock,
-                MS.MarkdownStateParagraphBreak,
-                MS.MarkdownStateUnknown,] and \
-             (text[:1] == "\t" or text[:4] == "    "):
-            token = Token()
-            token.type = MTT.TokenCodeBlock
-            token.position = 0
-            token.length = len(text)
-            token.openingMarkupLength = len(text) - len(text.lstrip())
-            self.addToken(token)
-            self.setState(MS.MarkdownStateCodeBlock)
             return True
 
         elif previousState in [

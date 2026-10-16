@@ -134,3 +134,49 @@ def test_web_server_manager_start_health_and_stop(tmp_path):
     finally:
         WebServerConfig.setPort(old_port)
         WebServerConfig.setDataDir(old_data)
+
+
+def test_desktop_user_management_and_ai_sync(tmp_path):
+    import pytest
+    from manuskript.web_server import WebServerConfig, WebUserManager
+    from manuskript.ai.config import AISettings
+    from manuskript.ai.chats import ChatStore
+    from manuskript.ai import providers as P
+
+    old_data = WebServerConfig.dataDir()
+    try:
+        WebServerConfig.setDataDir(str(tmp_path))
+
+        # 1. Test Desktop User Management (add, list, modify password, remove)
+        u1 = WebUserManager.addUser("alice", "correct horse battery", str(tmp_path))
+        u2 = WebUserManager.addUser("bob", "second password long", str(tmp_path))
+        users = WebUserManager.listUsers(str(tmp_path))
+        assert [u["username"] for u in users] == ["alice", "bob"]
+
+        WebUserManager.modifyPassword(u1["id"], "new password for alice", str(tmp_path))
+        WebUserManager.removeUser(u2["id"], str(tmp_path))
+        users_after = WebUserManager.listUsers(str(tmp_path))
+        assert [u["username"] for u in users_after] == ["alice"]
+
+        # Cannot remove the last remaining user
+        with pytest.raises(ValueError, match="last remaining"):
+            WebUserManager.removeUser(u1["id"], str(tmp_path))
+
+        # 2. Test Shared AI Provider Settings & Chat Sync
+        AISettings.setProvider(P.OPENAI)
+        AISettings.setModel(P.OPENAI, "gpt-4o")
+        assert (tmp_path / "ai" / "ai_providers.json").is_file()
+        assert AISettings.provider() == P.OPENAI
+        assert AISettings.model(P.OPENAI) == "gpt-4o"
+
+        store = ChatStore(str(tmp_path / "desktop_chats"))
+        store.save({
+            "id": "syncchat01",
+            "title": "Co-author: Opening scene",
+            "project": "/some/path/MyNovel.msk",
+            "messages": [{"role": "user", "content": "Hello"}],
+        })
+        listed = store.list("MyNovel")
+        assert any(c["id"] == "syncchat01" for c in listed)
+    finally:
+        WebServerConfig.setDataDir(old_data)

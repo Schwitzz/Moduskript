@@ -63,7 +63,7 @@ A pre-compiled `.deb` package is located in the `releases/` folder:
 
 ```bash
 sudo apt update
-sudo apt install ./releases/moduskript-0.01.0.deb
+sudo apt install ./releases/moduskript-0.01.1.deb
 ```
 
 Once installed, launch **Moduskript** from your desktop application launcher or run:

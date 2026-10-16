@@ -147,11 +147,11 @@ def test_readable_vs_md_code_toggle_and_highlighter(MWSampleProject):
     MW = MWSampleProject
     bar = MW.mainEditor.formatBar
     e = _openScene(MWSampleProject)
-    e.setPlainText("# Heading One\nParagraph with **bold** text.")
+    e.setPlainText("# Heading One\nParagraph with **bold** and *italic* text.")
     bar._view = e
     e.show()
 
-    # Place cursor on line 2 so line 1 is inactive
+    # Keep cursor right inside line 2 (active block, no selection)
     c = e.textCursor()
     c.movePosition(QTextCursor.End)
     e.setTextCursor(c)
@@ -159,21 +159,77 @@ def test_readable_vs_md_code_toggle_and_highlighter(MWSampleProject):
     # Toggle to Readable Mode first
     bar.btnReadable.setChecked(True)
     assert settings.textEditor["readableMode"] is True
-    assert bar.btnReadable.text() == "Readable"
+    # Icon-only button: no "Readable" or "MD Code" text labels
+    assert bar.btnReadable.text() == ""
+    assert "Readable mode" in bar.btnReadable.toolTip()
 
     # Verify underlying Markdown text is untouched
-    assert e.toPlainText() == "# Heading One\nParagraph with **bold** text."
-    # Verify opening markup '#' on inactive block 0 has collapsed point size (0.1)
+    assert e.toPlainText() == "# Heading One\nParagraph with **bold** and *italic* text."
+    # Verify opening markup '#' on block 0 AND '**' / '*' on active block 1 have collapsed point size (0.1)
     b0 = e.document().firstBlock()
-    formats = b0.layout().formats()
-    assert any(r.start == 0 and r.format.font().pointSizeF() == pytest.approx(0.1, abs=0.05) for r in formats)
+    b1 = b0.next()
+    formats0 = b0.layout().formats()
+    formats1 = b1.layout().formats()
+    assert any(r.start == 0 and r.format.font().pointSizeF() == pytest.approx(0.1, abs=0.05) for r in formats0)
+    # '*italic*' opening '*' is at index 28 in "Paragraph with **bold** and *italic* text."
+    assert any(r.start == 28 and r.format.font().pointSizeF() == pytest.approx(0.1, abs=0.05) for r in formats1)
+
+    # Also verify tab-indented novel paragraphs (`\t*italic*`) tokenize as prose (not code block) and collapse '*'
+    e.setPlainText("\t*No shit,* Arch thought, wondering who *exactly* might use it.")
+    e.highlighter.rehighlight()
+    b_tab = e.document().firstBlock()
+    tab_formats = b_tab.layout().formats()
+    assert any(r.start == 1 and r.format.font().pointSizeF() == pytest.approx(0.1, abs=0.05) for r in tab_formats)
+    assert any(r.start == 2 and r.format.fontItalic() is True for r in tab_formats)
 
     # Toggle back to MD Code Visible mode
     bar.btnReadable.setChecked(False)
     assert settings.textEditor["readableMode"] is False
-    assert bar.btnReadable.text() == "MD Code"
+    assert bar.btnReadable.text() == ""
+    assert "Markdown code visible" in bar.btnReadable.toolTip()
     formats_after = b0.layout().formats()
     assert not any(r.start == 0 and r.format.font().pointSizeF() == pytest.approx(0.1, abs=0.05) for r in formats_after)
+
+
+def test_markdown_formatting_buttons_toggle_off_instead_of_stacking(MWSampleProject):
+    MW = MWSampleProject
+    bar = MW.mainEditor.formatBar
+    e = _openScene(MWSampleProject)
+    e.setPlainText("hello world")
+    bar._view = e
+    e.show()
+
+    # 1. Select "hello" and click Bold -> "**hello** world"
+    c = e.textCursor()
+    c.setPosition(0)
+    c.setPosition(5, QTextCursor.KeepAnchor)
+    e.setTextCursor(c)
+    bar.btnBold.click()
+    assert e.toPlainText() == "**hello** world"
+
+    # Click Bold a second time to untoggle -> "hello world" (NOT "****hello**** world")
+    bar.btnBold.click()
+    assert e.toPlainText() == "hello world"
+
+    # 2. Click Italic on "hello" -> "*hello* world", click again -> "hello world"
+    bar.btnItalic.click()
+    assert e.toPlainText() == "*hello* world"
+    bar.btnItalic.click()
+    assert e.toPlainText() == "hello world"
+
+    # 3. Empty selection: click Bold -> inserts "****" with cursor inside, click Bold again -> removes "****"
+    e.setPlainText("")
+    bar.btnBold.click()
+    assert e.toPlainText() == "****"
+    bar.btnBold.click()
+    assert e.toPlainText() == ""
+
+    # 4. Heading toggle: click H1 -> "# hello", click H1 again -> "hello"
+    e.setPlainText("hello")
+    bar.btnH1.click()
+    assert e.toPlainText() == "# hello"
+    bar.btnH1.click()
+    assert e.toPlainText() == "hello"
 
 
 def test_ai_dock_undock_and_redock_button(MWSampleProject):

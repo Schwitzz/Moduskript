@@ -5,10 +5,13 @@ and Settings page for Moduskript / Manuskript Desktop.
 """
 
 import hashlib
+import hmac
 import json
 import logging
 import os
+import secrets
 import signal
+import sqlite3
 import subprocess
 import sys
 import time
@@ -17,9 +20,9 @@ from pathlib import Path
 import requests
 from PyQt5.QtCore import QObject, QSettings, QTimer, Qt, pyqtSignal
 from PyQt5.QtWidgets import (QCheckBox, QFileDialog, QFormLayout, QGroupBox,
-                             QHBoxLayout, QLabel, QLineEdit, QMessageBox,
-                             QPushButton, QScrollArea, QSpinBox, QVBoxLayout,
-                             QWidget, qApp)
+                             QHBoxLayout, QLabel, QLineEdit, QListWidget,
+                             QListWidgetItem, QMessageBox, QPushButton,
+                             QScrollArea, QSpinBox, QVBoxLayout, QWidget, qApp)
 
 from manuskript.functions import openURL, writablePath
 
@@ -274,6 +277,9 @@ def project_folder_signature(project_msk_path):
     folder = Path(str(project_msk_path)[:-4] if str(project_msk_path).endswith(".msk") else str(project_msk_path))
     if not folder.is_dir():
         return ""
+    # Do not compute a signature while a `.lock` file is active (mid-write)
+    if (folder / ".lock").exists():
+        return ""
     h = hashlib.sha256()
     try:
         for dirpath, dirnames, filenames in os.walk(folder):
@@ -508,6 +514,127 @@ class WebServerManager(QObject):
         openURL(self.serverUrl(project_name))
 
 
+class WebUserManager:
+    """Direct SQLite user management for the shared Web/Desktop `app.db`."""
+
+    SCHEMA = """
+    CREATE TABLE IF NOT EXISTS user (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        username        TEXT NOT NULL UNIQUE,
+        password_hash   TEXT NOT NULL,
+        totp_secret     TEXT,
+        totp_enabled    INTEGER NOT NULL DEFAULT 0,
+        recovery_codes  TEXT NOT NULL DEFAULT '[]',
+        created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+    );
+    CREATE TABLE IF NOT EXISTS login_attempt (
+        key TEXT NOT NULL,
+        at  REAL NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_attempt_key_at ON login_attempt(key, at);
+    """
+
+    @staticmethod
+    def dbPath(app_data_dir=None) -> str:
+        base = app_data_dir or WebServerConfig.appDataDir()
+        app_dir = os.path.join(base, "app")
+        os.makedirs(app_dir, exist_ok=True)
+        return os.path.join(app_dir, "app.db")
+
+    @classmethod
+    def _connect(cls, app_data_dir=None):
+        conn = sqlite3.connect(cls.dbPath(app_data_dir), timeout=10.0)
+        conn.row_factory = sqlite3.Row
+        conn.executescript(cls.SCHEMA)
+        return conn
+
+    @staticmethod
+    def hashPassword(password: str) -> str:
+        try:
+            from argon2 import PasswordHasher
+            return PasswordHasher().hash(password)
+        except Exception:
+            iterations = 310000
+            salt = secrets.token_hex(16)
+            dk = hashlib.pbkdf2_hmac(
+                "sha256", password.encode("utf-8"), bytes.fromhex(salt), iterations
+            )
+            return f"$pbkdf2-sha256${iterations}${salt}${dk.hex()}"
+
+    @classmethod
+    def listUsers(cls, app_data_dir=None) -> list[dict]:
+        with cls._connect(app_data_dir) as conn:
+            rows = conn.execute(
+                "SELECT id, username, totp_enabled, created_at FROM user ORDER BY id"
+            ).fetchall()
+        return [
+            {
+                "id": int(r["id"]),
+                "username": str(r["username"]),
+                "totp_enabled": bool(r["totp_enabled"]),
+                "created_at": str(r["created_at"]),
+            }
+            for r in rows
+        ]
+
+    @classmethod
+    def addUser(cls, username: str, password: str, app_data_dir=None) -> dict:
+        uname = (username or "").strip()
+        if len(uname) < 3:
+            raise ValueError("Username must be at least 3 characters.")
+        if len(password or "") < 10:
+            raise ValueError("Password must be at least 10 characters.")
+        pw_hash = cls.hashPassword(password)
+        with cls._connect(app_data_dir) as conn:
+            existing = conn.execute(
+                "SELECT id FROM user WHERE LOWER(username) = ?", (uname.lower(),)
+            ).fetchone()
+            if existing:
+                raise ValueError(f"Username '{uname}' already exists.")
+            cur = conn.execute(
+                "INSERT INTO user(username, password_hash) VALUES (?, ?)",
+                (uname, pw_hash),
+            )
+            uid = cur.lastrowid
+            conn.commit()
+        return {"id": uid, "username": uname}
+
+    @classmethod
+    def modifyPassword(cls, user_id: int, new_password: str, app_data_dir=None) -> None:
+        if len(new_password or "") < 10:
+            raise ValueError("Password must be at least 10 characters.")
+        pw_hash = cls.hashPassword(new_password)
+        with cls._connect(app_data_dir) as conn:
+            row = conn.execute(
+                "SELECT id, username FROM user WHERE id = ?", (int(user_id),)
+            ).fetchone()
+            if not row:
+                raise ValueError("User not found.")
+            conn.execute(
+                "UPDATE user SET password_hash = ? WHERE id = ?",
+                (pw_hash, int(user_id)),
+            )
+            conn.execute(
+                "DELETE FROM login_attempt WHERE key = ?",
+                ("user:" + str(row["username"]).lower(),),
+            )
+            conn.commit()
+
+    @classmethod
+    def removeUser(cls, user_id: int, app_data_dir=None) -> None:
+        with cls._connect(app_data_dir) as conn:
+            row = conn.execute(
+                "SELECT id, username FROM user WHERE id = ?", (int(user_id),)
+            ).fetchone()
+            if not row:
+                raise ValueError("User not found.")
+            count = conn.execute("SELECT COUNT(*) AS n FROM user").fetchone()["n"]
+            if count <= 1:
+                raise ValueError("Cannot remove the last remaining user account.")
+            conn.execute("DELETE FROM user WHERE id = ?", (int(user_id),))
+            conn.commit()
+
+
 class WebServerSettingsPage(QScrollArea):
     """Settings page for configuring and controlling the integrated Web App server."""
 
@@ -589,11 +716,50 @@ class WebServerSettingsPage(QScrollArea):
         self.btnSyncMarkers.clicked.connect(self._syncMarkersNow)
         f_paths.addRow("", self.btnSyncMarkers)
         lay.addWidget(grp_paths)
+
+        # 4. User Management (#24)
+        grp_users = QGroupBox(self.tr("Users (Web & Desktop Account Management)"))
+        v_users = QVBoxLayout(grp_users)
+        self.lstUsers = QListWidget()
+        self.lstUsers.setMaximumHeight(110)
+        self.lstUsers.currentItemChanged.connect(self._onUserSelectionChanged)
+        v_users.addWidget(self.lstUsers)
+
+        f_user = QFormLayout()
+        self.txtUserUsername = QLineEdit()
+        self.txtUserUsername.setPlaceholderText(self.tr("Username (at least 3 characters)"))
+        self.txtUserPassword = QLineEdit()
+        self.txtUserPassword.setEchoMode(QLineEdit.Password)
+        self.txtUserPassword.setPlaceholderText(self.tr("Password (at least 10 characters)"))
+        f_user.addRow(self.tr("Username:"), self.txtUserUsername)
+        f_user.addRow(self.tr("Password:"), self.txtUserPassword)
+        v_users.addLayout(f_user)
+
+        u_btns = QHBoxLayout()
+        self.btnAddUser = QPushButton(self.tr("Add User"))
+        self.btnModifyPassword = QPushButton(self.tr("Modify Password"))
+        self.btnRemoveUser = QPushButton(self.tr("Remove User"))
+        self.btnRefreshUsers = QPushButton(self.tr("Refresh"))
+        self.btnAddUser.clicked.connect(self._onAddUser)
+        self.btnModifyPassword.clicked.connect(self._onModifyPassword)
+        self.btnRemoveUser.clicked.connect(self._onRemoveUser)
+        self.btnRefreshUsers.clicked.connect(self.refreshUsers)
+        u_btns.addWidget(self.btnAddUser)
+        u_btns.addWidget(self.btnModifyPassword)
+        u_btns.addWidget(self.btnRemoveUser)
+        u_btns.addWidget(self.btnRefreshUsers)
+        v_users.addLayout(u_btns)
+
+        self.lblUserStatus = QLabel("")
+        self.lblUserStatus.setWordWrap(True)
+        v_users.addWidget(self.lblUserStatus)
+        lay.addWidget(grp_users)
         lay.addStretch(1)
 
         self._loadValues()
         self._connectSignals()
         self.refreshStatus()
+        self.refreshUsers()
 
     def _loadValues(self):
         self._loading = True
@@ -672,3 +838,66 @@ class WebServerSettingsPage(QScrollArea):
             self.lblStatusBadge.setText(self.tr("Stopped"))
             self.btnStart.setEnabled(True)
             self.btnStop.setEnabled(False)
+
+    # --------------------------------------------------- user management (#24)
+    def refreshUsers(self):
+        self.lstUsers.clear()
+        try:
+            users = WebUserManager.listUsers()
+        except Exception as e:
+            self.lblUserStatus.setText(self.tr("Could not load users: %s") % str(e))
+            return
+        for u in users:
+            suffix = self.tr(" (2FA enabled)") if u.get("totp_enabled") else ""
+            item = QListWidgetItem(f"{u['username']}{suffix}")
+            item.setData(Qt.UserRole, u["id"])
+            item.setData(Qt.UserRole + 1, u["username"])
+            self.lstUsers.addItem(item)
+        if self.lstUsers.count() > 0 and self.lstUsers.currentRow() < 0:
+            self.lstUsers.setCurrentRow(0)
+        self._onUserSelectionChanged()
+
+    def _onUserSelectionChanged(self, *_a):
+        has_sel = self.lstUsers.currentItem() is not None
+        self.btnModifyPassword.setEnabled(has_sel)
+        self.btnRemoveUser.setEnabled(has_sel and self.lstUsers.count() > 1)
+
+    def _onAddUser(self):
+        uname = self.txtUserUsername.text().strip()
+        pw = self.txtUserPassword.text()
+        try:
+            WebUserManager.addUser(uname, pw)
+            self.txtUserUsername.clear()
+            self.txtUserPassword.clear()
+            self.lblUserStatus.setText(self.tr("Created user '%s'.") % uname)
+            self.refreshUsers()
+        except ValueError as e:
+            self.lblUserStatus.setText(str(e))
+
+    def _onModifyPassword(self):
+        item = self.lstUsers.currentItem()
+        if item is None:
+            self.lblUserStatus.setText(self.tr("Select a user first."))
+            return
+        uid = item.data(Qt.UserRole)
+        uname = item.data(Qt.UserRole + 1)
+        pw = self.txtUserPassword.text()
+        try:
+            WebUserManager.modifyPassword(uid, pw)
+            self.txtUserPassword.clear()
+            self.lblUserStatus.setText(self.tr("Updated password for '%s'.") % uname)
+        except ValueError as e:
+            self.lblUserStatus.setText(str(e))
+
+    def _onRemoveUser(self):
+        item = self.lstUsers.currentItem()
+        if item is None:
+            return
+        uid = item.data(Qt.UserRole)
+        uname = item.data(Qt.UserRole + 1)
+        try:
+            WebUserManager.removeUser(uid)
+            self.lblUserStatus.setText(self.tr("Removed user '%s'.") % uname)
+            self.refreshUsers()
+        except ValueError as e:
+            self.lblUserStatus.setText(str(e))

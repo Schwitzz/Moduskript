@@ -40,6 +40,10 @@ class MDEditView(textEditView):
         if index:
             # We have to setup things anew, for the highlighter notably
             self.setCurrentModelIndex(index)
+        elif self._highlighting:
+            self.highlighter = MarkdownHighlighter(self)
+            self.highlighter.setDefaultBlockFormat(self._defaultBlockFormat)
+            self.highlighter.updateColorScheme()
 
         self.cursorPositionChanged.connect(self.cursorPositionHasChanged)
         self.verticalScrollBar().rangeChanged.connect(
@@ -299,30 +303,119 @@ class MDEditView(textEditView):
 
     def lineFormattingMarkup(self, markup):
         """
-        Adds `markup` at the beginning of block.
+        Toggles `markup` at the beginning of block (removes if already present, otherwise adds).
         """
         cursor = self.textCursor()
-        cursor.movePosition(cursor.StartOfBlock)
-        cursor.insertText(markup)
+        block = cursor.block()
+        text = block.text()
+        stripped = markup.strip()
+        cursor.beginEditBlock()
+        if text.startswith(markup):
+            c = QTextCursor(block)
+            c.movePosition(QTextCursor.StartOfBlock)
+            c.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, len(markup))
+            c.removeSelectedText()
+        elif stripped and text.lstrip().startswith(stripped + " "):
+            idx = text.find(stripped + " ")
+            c = QTextCursor(block)
+            c.movePosition(QTextCursor.StartOfBlock)
+            c.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, idx + len(stripped) + 1)
+            c.removeSelectedText()
+        else:
+            cursor.movePosition(cursor.StartOfBlock)
+            cursor.insertText(markup)
+        cursor.endEditBlock()
 
     def insertFormattingMarkup(self, markup):
         cursor = self.textCursor()
+        doc = self.document()
+        mlen = len(markup)
 
-        # Select beginning and end of words
-        self.selectWord(cursor)
+        def _docSlice(pos, length):
+            if pos < 0 or length <= 0 or pos + length > doc.characterCount():
+                return ""
+            c = QTextCursor(doc)
+            c.setPosition(pos)
+            c.setPosition(pos + length, QTextCursor.KeepAnchor)
+            return c.selectedText()
+
+        def _isOuterMatch(start_pos, end_pos):
+            before = _docSlice(start_pos - mlen, mlen)
+            after = _docSlice(end_pos, mlen)
+            if before != markup or after != markup:
+                return False
+            # For single '*' italic, ensure we aren't matching the inner '*' of '**' unless '***'
+            if markup == "*":
+                before2 = _docSlice(start_pos - 2, 2)
+                after2 = _docSlice(end_pos, 2)
+                before3 = _docSlice(start_pos - 3, 3)
+                after3 = _docSlice(end_pos, 3)
+                if (before2 == "**" and before3 != "***") or (after2 == "**" and after3 != "***"):
+                    return False
+            return True
+
+        # 1. Check before selectWord in case cursor is right between empty pair e.g. **|**
+        orig_start = cursor.selectionStart()
+        orig_end = cursor.selectionEnd()
+        if not cursor.hasSelection() and _isOuterMatch(orig_start, orig_end):
+            cursor.beginEditBlock()
+            cursor.setPosition(orig_start - mlen)
+            cursor.setPosition(orig_end + mlen, QTextCursor.KeepAnchor)
+            cursor.removeSelectedText()
+            cursor.endEditBlock()
+            self.setTextCursor(cursor)
+            return
+
+        # Select beginning and end of words if no selection
+        if not cursor.hasSelection():
+            self.selectWord(cursor)
+
+        start = cursor.selectionStart()
+        end = cursor.selectionEnd()
+        selected = cursor.selectedText()
+
+        # 2. If the selection itself includes the surrounding markup (e.g. "**word**")
+        if (
+            len(selected) >= 2 * mlen
+            and selected.startswith(markup)
+            and selected.endswith(markup)
+            and not (markup == "*" and selected.startswith("**") and not selected.startswith("***"))
+        ):
+            inner = selected[mlen : len(selected) - mlen]
+            cursor.beginEditBlock()
+            cursor.insertText(inner)
+            cursor.setPosition(start)
+            cursor.setPosition(start + len(inner), QTextCursor.KeepAnchor)
+            cursor.endEditBlock()
+            self.setTextCursor(cursor)
+            return
+
+        # 3. If the characters immediately outside [start, end] are `markup`
+        if _isOuterMatch(start, end):
+            cursor.beginEditBlock()
+            cursor.setPosition(end)
+            cursor.setPosition(end + mlen, QTextCursor.KeepAnchor)
+            cursor.removeSelectedText()
+            cursor.setPosition(start - mlen)
+            cursor.setPosition(start, QTextCursor.KeepAnchor)
+            cursor.removeSelectedText()
+            cursor.setPosition(start - mlen)
+            cursor.setPosition(end - mlen, QTextCursor.KeepAnchor)
+            cursor.endEditBlock()
+            self.setTextCursor(cursor)
+            return
 
         if cursor.hasSelection():
-            start = cursor.selectionStart()
-            end = cursor.selectionEnd() + len(markup)
+            end_after = cursor.selectionEnd() + mlen
             cursor.beginEditBlock()
             cursor.setPosition(start)
             cursor.insertText(markup)
-            cursor.setPosition(end)
+            cursor.setPosition(end_after)
             cursor.insertText(markup)
             cursor.endEditBlock()
-            cursor.movePosition(QTextCursor.PreviousCharacter,
-                                QTextCursor.KeepAnchor, len(markup))
-            #self.setTextCursor(cursor)
+            cursor.setPosition(start + mlen)
+            cursor.setPosition(end_after, QTextCursor.KeepAnchor)
+            self.setTextCursor(cursor)
 
         else:
             # Insert markup twice (for opening and closing around the cursor),
@@ -331,7 +424,7 @@ class MDEditView(textEditView):
             cursor.insertText(markup)
             cursor.insertText(markup)
             cursor.movePosition(QTextCursor.PreviousCharacter,
-                                QTextCursor.MoveAnchor, len(markup))
+                                QTextCursor.MoveAnchor, mlen)
             cursor.endEditBlock()
             self.setTextCursor(cursor)
 

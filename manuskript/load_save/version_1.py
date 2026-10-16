@@ -1172,3 +1172,99 @@ def parseMMDFile(text, asDict=False):
         return md, body
     else:
         return mdd, body
+
+
+def syncExternalChangesInPlace(project):
+    """Apply external Web App edits (scene text/metadata, whiteboards.json) in-place
+    into the existing `mdlOutline` and `whiteboardView` without destroying models or closing tabs.
+    Returns True if all external changes were synced in-place, or False if a full reload is needed.
+    """
+    global cache
+    if not project or not cache:
+        return False
+
+    dir_name = os.path.dirname(project)
+    folder = os.path.splitext(os.path.basename(project))[0]
+    path = os.path.join(dir_name, folder, "")
+    if not os.path.isdir(path):
+        return False
+
+    disk_files = {}
+    for dirpath, _dirnames, filenames in os.walk(path):
+        p = dirpath.replace(path, "")
+        if p[:1] == "." or os.path.basename(p)[:1] == ".":
+            continue
+        for f in filenames:
+            if f[:1] == ".":
+                continue
+            rel = os.path.join(p, f)
+            full = os.path.join(dirpath, f)
+            try:
+                if f[-4:] in [".xml", "opml"]:
+                    with open(full, "rb") as fo:
+                        disk_files[rel] = fo.read()
+                else:
+                    with open(full, "rt", encoding="utf8") as fo:
+                        disk_files[rel] = fo.read()
+            except Exception:
+                return False
+
+    # Ignore revisions.xml / MANUSKRIPT marker differences
+    ignore_keys = {"revisions.xml", "MANUSKRIPT"}
+    cached_keys = {k for k in cache.keys() if k not in ignore_keys}
+    disk_keys = {k for k in disk_files.keys() if k not in ignore_keys}
+
+    # If outline files were added, removed, or renamed on disk, require a safe full reload
+    cached_outline_keys = {k for k in cached_keys if k.startswith("outline")}
+    disk_outline_keys = {k for k in disk_keys if k.startswith("outline")}
+    if cached_outline_keys != disk_outline_keys:
+        return False
+
+    # If non-outline, non-whiteboard files changed (e.g. characters, plots, world), require a safe full reload
+    for k in (cached_keys | disk_keys) - cached_outline_keys - {"whiteboards.json", "settings.txt"}:
+        if cache.get(k) != disk_files.get(k):
+            return False
+
+    mw = mainWindow()
+    if mw is None or getattr(mw, "mdlOutline", None) is None:
+        return False
+
+    # Build map of `_lastPath` -> `outlineItem`
+    path_to_item = {}
+
+    def _walk(item):
+        lp = getattr(item, "_lastPath", None)
+        if lp:
+            path_to_item[lp] = item
+        for c in item.children():
+            _walk(c)
+
+    _walk(mw.mdlOutline.rootItem)
+
+    # Update changed outline items in-place
+    for rel_path in disk_outline_keys:
+        if disk_files[rel_path] != cache.get(rel_path):
+            itm = path_to_item.get(rel_path)
+            if itm is None:
+                return False
+            md, body = parseMMDFile(disk_files[rel_path], asDict=True)
+            md.pop("ID", None)
+            for k, val in md.items():
+                if k in Outline.__members__:
+                    col = Outline.__members__[k]
+                    if itm.data(col) != str(val):
+                        itm.setData(col, str(val))
+            if not itm.isFolder() and itm.data(Outline.text) != str(body):
+                itm.setData(Outline.text, str(body))
+            cache[rel_path] = disk_files[rel_path]
+
+    # Update whiteboards.json in-place if changed
+    if "whiteboards.json" in disk_files and disk_files["whiteboards.json"] != cache.get("whiteboards.json"):
+        cache["whiteboards.json"] = disk_files["whiteboards.json"]
+        if hasattr(mw, "whiteboardView") and mw.whiteboardView is not None:
+            mw.whiteboardView.loadJson(disk_files["whiteboards.json"])
+
+    if "revisions.xml" in disk_files:
+        cache["revisions.xml"] = disk_files["revisions.xml"]
+
+    return True

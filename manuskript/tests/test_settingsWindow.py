@@ -187,7 +187,8 @@ def test_modern_settings_search_presets_and_live_theme(MWSampleProject):
     SW.setTab("Views")
     assert SW.lstMenu.currentRow() == 2
     SW.setTab("Editor")
-    assert SW.lstMenu.currentRow() == 2 and SW.tabViews.currentIndex() == 3
+    assert SW.lstMenu.currentRow() == 2 and SW.tabViews.currentIndex() == SW.tabViews.count() - 1
+    assert all("Index cards" not in SW.tabViews.tabText(i) for i in range(SW.tabViews.count()))
     SW.setTab("AI")
     assert SW.lstMenu.currentRow() == 7
     SW.setTab("Appearance")

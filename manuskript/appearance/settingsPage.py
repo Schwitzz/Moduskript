@@ -87,7 +87,7 @@ class AppearanceSettingsPage(QScrollArea):
         box = QGroupBox(self.tr("Views"))
         v = QVBoxLayout(box)
         self.chkViews = QCheckBox(self.tr(
-            "Editor, corkboard and cards follow the colour scheme"))
+            "Editor and views follow the colour scheme"))
         self.chkIcons = QCheckBox(self.tr("Recolour faint grey icons on dark schemes"))
         v.addWidget(self.chkViews)
         v.addWidget(self.chkIcons)

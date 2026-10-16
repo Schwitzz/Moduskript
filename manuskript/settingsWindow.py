@@ -388,7 +388,7 @@ class settingsWindow(QWidget, Ui_Settings):
         if tab in tabs:
             self.lstMenu.setCurrentRow(tabs[tab])
             if tab == "Editor":
-                self.tabViews.setCurrentIndex(3)
+                self.tabViews.setCurrentIndex(self.tabViews.count() - 1)
         else:
             self.lstMenu.setCurrentRow(tab)
 
@@ -425,18 +425,24 @@ class settingsWindow(QWidget, Ui_Settings):
         sv.addWidget(self.lstMenu, 1)
         self.horizontalLayout_8.insertWidget(0, sidebar)
 
+        # Remove legacy Index Cards tab from Settings -> Views & Editor
+        if hasattr(self, "tab_3"):
+            cork_idx = self.tabViews.indexOf(self.tab_3)
+            if cork_idx >= 0:
+                self.tabViews.removeTab(cork_idx)
+
         # Keyword index per page row so searching "font", "theme", "ai", "autosave", etc. finds the right page
         self._pageKeywords = {
             0: "general saving language translation style font size character count autosave quit zip autoload",
             1: "revisions history backup smart remove preset light standard frequent",
-            2: "views tree outline corkboard cards text editor font spacing indent tab width cursor focus typewriter readable markdown",
+            2: "views tree outline text editor font spacing indent tab width cursor focus typewriter readable markdown",
             3: "labels color highlight category",
             4: "status statuses draft todo final",
             5: "fullscreen distraction free theme",
             6: "tooltips style system colors",
             7: "ai assistant llm llama openai anthropic gemini model prompt context temperature thinking",
             8: "appearance theme colour scheme dark light midnight paper sepia accent density font",
-            9: "web server sync browser port background launch commingled projects",
+            9: "web server sync browser port background launch commingled projects users account password",
         }
 
     def filterSettingsPages(self, query):
