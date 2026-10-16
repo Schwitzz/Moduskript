@@ -412,6 +412,11 @@ class FormatBar(QFrame):
         if self._updating:
             return
         settings.textEditor["readableMode"] = bool(checked)
+        try:
+            from PyQt5.QtCore import QSettings
+            QSettings().setValue("textEditor/readableMode", bool(checked))
+        except Exception:
+            pass
         self._updateReadableButton(checked)
         self._pushToSettingsWindow()
         v = self.target()

@@ -277,6 +277,9 @@ def project_folder_signature(project_msk_path):
     folder = Path(str(project_msk_path)[:-4] if str(project_msk_path).endswith(".msk") else str(project_msk_path))
     if not folder.is_dir():
         return ""
+    # Do not compute a signature while a `.lock` file is active (mid-write)
+    if (folder / ".lock").exists():
+        return ""
     h = hashlib.sha256()
     try:
         for dirpath, dirnames, filenames in os.walk(folder):

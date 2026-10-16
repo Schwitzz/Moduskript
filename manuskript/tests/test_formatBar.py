@@ -174,6 +174,14 @@ def test_readable_vs_md_code_toggle_and_highlighter(MWSampleProject):
     # '*italic*' opening '*' is at index 28 in "Paragraph with **bold** and *italic* text."
     assert any(r.start == 28 and r.format.font().pointSizeF() == pytest.approx(0.1, abs=0.05) for r in formats1)
 
+    # Also verify tab-indented novel paragraphs (`\t*italic*`) tokenize as prose (not code block) and collapse '*'
+    e.setPlainText("\t*No shit,* Arch thought, wondering who *exactly* might use it.")
+    e.highlighter.rehighlight()
+    b_tab = e.document().firstBlock()
+    tab_formats = b_tab.layout().formats()
+    assert any(r.start == 1 and r.format.font().pointSizeF() == pytest.approx(0.1, abs=0.05) for r in tab_formats)
+    assert any(r.start == 2 and r.format.fontItalic() is True for r in tab_formats)
+
     # Toggle back to MD Code Visible mode
     bar.btnReadable.setChecked(False)
     assert settings.textEditor["readableMode"] is False

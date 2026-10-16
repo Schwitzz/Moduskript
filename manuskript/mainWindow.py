@@ -988,6 +988,23 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             return
 
         if loadFromFile:
+            # If a project is already open, cleanly close tabs and break old connections first
+            # so old QModelIndex pointers are never accessed after model replacement.
+            if self.currentProject:
+                try:
+                    self.mainEditor.closeAllTabs()
+                except Exception:
+                    pass
+                try:
+                    self.breakConnections()
+                except Exception:
+                    pass
+                if hasattr(self, "saveTimer") and self.saveTimer:
+                    self.saveTimer.stop()
+                if hasattr(self, "saveTimerNoChanges") and self.saveTimerNoChanges:
+                    self.saveTimerNoChanges.stop()
+                loadSave.clearSaveCache()
+
             # Load empty settings
             importlib.reload(settings)
             settings.initDefaultValues()
@@ -1020,6 +1037,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.mainEditor.setFolderView(settings.folderView)
         self.mainEditor.updateFolderViewButtons(settings.folderView)
         self.mainEditor.tabSplitter.updateStyleSheet()
+        if hasattr(self.mainEditor, "formatBar") and self.mainEditor.formatBar is not None:
+            self.mainEditor.formatBar.refresh()
         self.tabMain.setCurrentIndex(settings.lastTab)
         self.mainEditor.updateCorkBackground()
         if settings.viewMode == "simple":
@@ -1027,11 +1046,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         else:
             self.setViewModeFiction()
 
-        # Set autosave
+        # Set autosave (only write to disk when projectDirty is True)
         self.saveTimer = QTimer()
         self.saveTimer.setInterval(settings.autoSaveDelay * 60 * 1000)
         self.saveTimer.setSingleShot(False)
-        self.saveTimer.timeout.connect(self.saveDatas)
+        self.saveTimer.timeout.connect(lambda: self.saveDatas() if self.projectDirty else None)
         if settings.autoSave:
             self.saveTimer.start()
 
@@ -2137,9 +2156,28 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         sig = project_folder_signature(self.currentProject)
         if sig and self._lastDiskSignature and sig != self._lastDiskSignature:
             self._lastDiskSignature = sig
-            LOGGER.info("Detected external project modification on disk; reloading %s", self.currentProject)
-            self.loadProject(self.currentProject)
-            F.statusMessage(self.tr("Project reloaded with changes from Web App."), 4000)
+            LOGGER.info("Detected external project modification on disk; syncing %s", self.currentProject)
+            from manuskript.load_save.version_1 import syncExternalChangesInPlace
+            was_auto = getattr(settings, "autoSaveNoChanges", False)
+            try:
+                settings.autoSaveNoChanges = False
+                synced_in_place = syncExternalChangesInPlace(self.currentProject)
+            except Exception as e:
+                LOGGER.warning("In-place sync fallback to full reload: %s", e)
+                synced_in_place = False
+            finally:
+                settings.autoSaveNoChanges = was_auto
+
+            if synced_in_place:
+                self.projectDirty = False
+                if hasattr(self, "saveTimerNoChanges") and self.saveTimerNoChanges:
+                    self.saveTimerNoChanges.stop()
+                self._lastDiskSignature = project_folder_signature(self.currentProject)
+                F.statusMessage(self.tr("Synced changes from Web App."), 3000)
+            else:
+                proj = self.currentProject
+                self.loadProject(proj)
+                F.statusMessage(self.tr("Project reloaded with changes from Web App."), 4000)
 
     ###############################################################################
     # VIEW MENU

@@ -132,6 +132,13 @@ def initDefaultValues():
     if not textEditor["fontColor"]:
         from manuskript.ui import style as S
         textEditor["fontColor"] = S.text
+    try:
+        from PyQt5.QtCore import QSettings
+        textEditor["readableMode"] = bool(
+            QSettings().value("textEditor/readableMode", textEditor.get("readableMode", False), type=bool)
+        )
+    except Exception:
+        pass
 
 def applyTooltipStyle():
     """
@@ -315,6 +322,14 @@ def load(string, fromString=False, protocol=None):
 
         for k in added:
             if not k in textEditor: textEditor[k] = added[k]
+        try:
+            from PyQt5.QtCore import QSettings
+            if QSettings().contains("textEditor/readableMode"):
+                textEditor["readableMode"] = bool(
+                    QSettings().value("textEditor/readableMode", textEditor["readableMode"], type=bool)
+                )
+        except Exception:
+            pass
 
         if textEditor["cursorNotBlinking"]:
             qApp.setCursorFlashTime(0)

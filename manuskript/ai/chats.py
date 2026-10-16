@@ -39,7 +39,9 @@ class ChatStore:
         self._migrate_json_files_to_db()
 
     def _connect(self):
-        conn = sqlite3.connect(self.db_path, timeout=10.0)
+        conn = sqlite3.connect(self.db_path, timeout=15.0)
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA busy_timeout=15000;")
         return conn
 
     def _init_db(self):
