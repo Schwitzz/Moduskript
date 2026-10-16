@@ -20,6 +20,7 @@ class AISettingsPage(QScrollArea):
         self.setWidgetResizable(True)
         self.setFrameShape(QScrollArea.NoFrame)
         self._worker = None
+        self._activeWorkers = set()
         self._autoFetched = False
         self._loading = True
         body = QWidget()
@@ -179,22 +180,36 @@ class AISettingsPage(QScrollArea):
         for role, t in self.txtPrompt.items():
             t.setPlainText(DEFAULT_PROMPTS[role])
 
+    def _retireWorker(self, w):
+        self._activeWorkers.discard(w)
+        try:
+            self.btnRefresh.setEnabled(True)
+            w.deleteLater()
+        except RuntimeError:
+            pass
+
     def _refresh(self):
         prov = self.cmbProvider.currentText()
         self._keyChanged()
         AISettings.setEndpoint(self.txtEndpoint.text())
         if self._worker is not None and self._worker.isRunning():
-            return
+            try:
+                self._worker.done.disconnect()
+                self._worker.failed.disconnect()
+            except Exception:
+                pass
         if prov != P.LOCAL and not AISettings.apiKey(prov):
             self.lblInfo.setText(self.tr("Enter your API key, then click Refresh models."))
             return
         self.btnRefresh.setEnabled(False)
         self.lblInfo.setText(self.tr("Fetching models..."))
-        self._worker = ModelsWorker(prov, AISettings.endpoint(), AISettings.apiKey(prov), self)
-        self._worker.done.connect(self._refreshDone)
-        self._worker.failed.connect(self._refreshFailed)
-        self._worker.finished.connect(lambda: self.btnRefresh.setEnabled(True))
-        self._worker.start()
+        w = ModelsWorker(prov, AISettings.endpoint(), AISettings.apiKey(prov), None)
+        self._activeWorkers.add(w)
+        self._worker = w
+        w.done.connect(self._refreshDone)
+        w.failed.connect(self._refreshFailed)
+        w.finished.connect(lambda worker=w: self._retireWorker(worker))
+        w.start()
 
     def _refreshDone(self, prov, names):
         if prov != self.cmbProvider.currentText():

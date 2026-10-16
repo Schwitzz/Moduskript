@@ -46,7 +46,7 @@ fullscreenSettings = {
 spellcheck = False
 dict = None
 corkSizeFactor = 100
-folderView = "cork"
+folderView = "outline"
 lastTab = 0
 openIndexes = [""]
 progressChars = False
@@ -237,7 +237,7 @@ def load(string, fromString=False, protocol=None):
 
     if "folderView" in allSettings:
         global folderView
-        folderView = allSettings["folderView"]
+        folderView = "outline" if allSettings["folderView"] == "cork" else allSettings["folderView"]
 
     if "lastTab" in allSettings:
         global lastTab

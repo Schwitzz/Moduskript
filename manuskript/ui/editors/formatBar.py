@@ -173,12 +173,13 @@ class FormatBar(QFrame):
         self.btnTypography.setMenu(typo_menu)
         row1.addWidget(self.btnTypography)
 
-        # ---- Readable / MD Code mode toggle button
+        # ---- Readable / MD Code mode toggle button (icon-only, tooltip provides context)
         self.btnReadable = QToolButton()
         self.btnReadable.setCheckable(True)
         self.btnReadable.setFocusPolicy(Qt.NoFocus)
-        self.btnReadable.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.btnReadable.setIconSize(QSize(16, 16))
+        self.btnReadable.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        self.btnReadable.setIconSize(QSize(17, 17))
+        self.btnReadable.setMinimumSize(30, 28)
         self._updateReadableButton(settings.textEditor.get("readableMode", False))
         self.btnReadable.toggled.connect(self._toggleReadableMode)
         row1.addWidget(self.btnReadable)
@@ -238,6 +239,11 @@ class FormatBar(QFrame):
 
     def _applyNamedStyle(self, style_name):
         if style_name in STYLES:
+            v = self.target()
+            if v is not None:
+                cur_style = styleOf(v.textCursor().block().text())
+                if cur_style == style_name:
+                    style_name = "Body text"
             self.cmbStyle.setCurrentIndex(STYLES.index(style_name))
             self._applyStyle()
 
@@ -390,17 +396,16 @@ class FormatBar(QFrame):
 
     def _updateReadableButton(self, readable_on):
         self.btnReadable.setChecked(bool(readable_on))
+        self.btnReadable.setText("")
         if readable_on:
-            self.btnReadable.setIcon(modernIcon("book-open", 16, accent=True))
-            self.btnReadable.setText(self.tr("Readable"))
+            self.btnReadable.setIcon(modernIcon("book-open", 17, accent=True))
             self.btnReadable.setToolTip(
-                self.tr("Readable mode (Markdown syntax hidden on inactive lines — click for MD Code)")
+                self.tr("Readable mode active (Markdown syntax hidden — click to show Markdown code)")
             )
         else:
-            self.btnReadable.setIcon(modernIcon("code", 16))
-            self.btnReadable.setText(self.tr("MD Code"))
+            self.btnReadable.setIcon(modernIcon("code", 17))
             self.btnReadable.setToolTip(
-                self.tr("MD Code mode (all Markdown syntax visible — click for Readable mode)")
+                self.tr("Markdown code visible (click to switch to Readable mode)")
             )
 
     def _toggleReadableMode(self, checked):

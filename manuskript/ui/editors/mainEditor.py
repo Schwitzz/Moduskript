@@ -97,12 +97,13 @@ class mainEditor(QWidget, Ui_mainEditor):
         # self.tab.setDocumentMode(False)
 
         from manuskript.ui.modernIcons import icon as modernIcon
-        self.btnRedacFolderCork.setIcon(modernIcon("cards", 18))
+        self.btnRedacFolderCork.setVisible(False)
+        self.sldCorkSizeFactor.setVisible(False)
         self.btnRedacFolderOutline.setIcon(modernIcon("list-tree", 18))
         self.btnRedacFolderText.setIcon(modernIcon("file-text", 18))
         self.btnRedacFullscreen.setIcon(modernIcon("maximize", 18))
 
-        for btn in [self.btnRedacFolderCork, self.btnRedacFolderText, self.btnRedacFolderOutline]:
+        for btn in [self.btnRedacFolderText, self.btnRedacFolderOutline]:
             btn.setToolTip(btn.text())
             btn.setText("")
 
@@ -321,17 +322,15 @@ class mainEditor(QWidget, Ui_mainEditor):
             visible = True
 
         self.btnRedacFolderText.setVisible(visible)
-        self.btnRedacFolderCork.setVisible(visible)
+        self.btnRedacFolderCork.setVisible(False)
         self.btnRedacFolderOutline.setVisible(visible)
-        self.sldCorkSizeFactor.setVisible(visible and self.btnRedacFolderCork.isChecked())
+        self.sldCorkSizeFactor.setVisible(False)
         self.btnRedacFullscreen.setVisible(not visible)
 
     def updateFolderViewButtons(self, view):
         if view == "text":
             self.btnRedacFolderText.setChecked(True)
-        elif view == "cork":
-            self.btnRedacFolderCork.setChecked(True)
-        elif view == "outline":
+        else:
             self.btnRedacFolderOutline.setChecked(True)
 
     def updateStats(self):

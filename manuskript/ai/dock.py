@@ -59,6 +59,9 @@ class AIDock(QDockWidget):
         self.chat = self._blankChat()
         self.worker = None
         self.modelsWorker = None
+        self._activeWorkers = set()
+        self._tick = QTimer(self)
+        self._tick.timeout.connect(self._updateStatus)
         self._streamText = ""
         self._streamAgent = ""
         self._pending = None          # (prompt) while a reply is streaming
@@ -266,27 +269,48 @@ class AIDock(QDockWidget):
         AISettings.setModel(self.cmbProvider.currentText(),
                             self.cmbModel.currentText())
 
+    def _retireWorker(self, w):
+        """Safely retire a finished QThread worker without destroying a running thread."""
+        self._activeWorkers.discard(w)
+        try:
+            w.deleteLater()
+        except RuntimeError:
+            pass
+
     def refreshModels(self):
         prov = self.cmbProvider.currentText()
         if self.modelsWorker is not None and self.modelsWorker.isRunning():
-            return
+            try:
+                self.modelsWorker.done.disconnect()
+                self.modelsWorker.failed.disconnect()
+            except Exception:
+                pass
         self.lblStatus.setText(self.tr("Fetching models..."))
-        self.modelsWorker = ModelsWorker(
-            prov, AISettings.endpoint(), AISettings.apiKey(prov), self)
-        self.modelsWorker.done.connect(self._modelsDone)
-        self.modelsWorker.failed.connect(self._modelsFailed)
-        self.modelsWorker.start()
+        mw = ModelsWorker(
+            prov, AISettings.endpoint(), AISettings.apiKey(prov), None)
+        self._activeWorkers.add(mw)
+        self.modelsWorker = mw
+        mw.done.connect(self._modelsDone)
+        mw.failed.connect(self._modelsFailed)
+        mw.finished.connect(lambda w=mw: self._retireWorker(w))
+        mw.start()
 
     def _modelsDone(self, prov, names):
-        if prov != self.cmbProvider.currentText():
-            return   # user switched provider meanwhile
-        AISettings.setCachedModels(prov, names)
-        self._fillModels(names, self.cmbModel.currentText())
-        self.lblStatus.setText(self.tr("%d models found") % len(names))
+        try:
+            if prov != self.cmbProvider.currentText():
+                return   # user switched provider meanwhile
+            AISettings.setCachedModels(prov, names)
+            self._fillModels(names, self.cmbModel.currentText())
+            self.lblStatus.setText(self.tr("%d models found") % len(names))
+        except RuntimeError:
+            pass
 
     def _modelsFailed(self, prov, msg):
-        if prov == self.cmbProvider.currentText():
-            self.lblStatus.setText(self.tr("Model list failed: ") + msg)
+        try:
+            if prov == self.cmbProvider.currentText():
+                self.lblStatus.setText(self.tr("Model list failed: ") + msg)
+        except RuntimeError:
+            pass
 
     # ------------------------------------------------------------ chats
     def refreshChatList(self):
@@ -301,10 +325,27 @@ class AIDock(QDockWidget):
                 self.cmbChats.setCurrentIndex(i)
         _fitPopup(self.cmbChats)
 
+    def _detachActiveChatWorker(self):
+        """Cancel and disconnect the current ChatWorker so it cannot touch UI state."""
+        w = self.worker
+        if w is None:
+            return
+        self.worker = None
+        self._tick.stop()
+        self.btnCancel.setVisible(False)
+        self.cmbProvider.setEnabled(True)
+        for sig in (w.chunk, w.thinking, w.usage, w.failed, w.completed):
+            try:
+                sig.disconnect()
+            except Exception:
+                pass
+        w.cancel()
+
     def newChat(self):
         if self.worker is not None:
-            self.cancel()
-            self.worker.wait(3000)
+            self._detachActiveChatWorker()
+        self._pending = None
+        self._streamText = ""
         self.chat = self._blankChat()
         self.view.clear()
         self.lblStatus.setText("")
@@ -410,86 +451,114 @@ class AIDock(QDockWidget):
         self.view.insertPlainText(prompt)
         self._appendHeader(role)
 
-        self.worker = ChatWorker(req, self)
-        self.worker.chunk.connect(self._onChunk)
-        self.worker.thinking.connect(self._onThinking)
-        self.worker.usage.connect(self._onUsage)
-        self.worker.failed.connect(self._onFailed)
-        self.worker.completed.connect(self._onCompleted)
-        self.worker.finished.connect(self._onFinished)
+        w = ChatWorker(req, None)
+        self._activeWorkers.add(w)
+        self.worker = w
+        w.chunk.connect(self._onChunk)
+        w.thinking.connect(self._onThinking)
+        w.usage.connect(self._onUsage)
+        w.failed.connect(self._onFailed)
+        w.completed.connect(self._onCompleted)
+        w.finished.connect(lambda worker=w: self._onWorkerFinished(worker))
         self.btnCancel.setVisible(True)
         self.cmbProvider.setEnabled(False)
-        self._tick = QTimer(self)
-        self._tick.timeout.connect(self._updateStatus)
         self._tick.start(500)
         self._updateStatus()
-        self.worker.start()
+        w.start()
 
     def _updateStatus(self):
-        if self.worker is None:
-            return
-        el = time.time() - self._t0
-        if not self._streamText:
-            self.lblStatus.setText(self.tr("Thinking... %ds") % int(el))
-            return
-        out = self._outTok or P.estimateTokens(self._streamText)
-        span = max(time.time() - self._tFirst, 0.001)
-        self.lblStatus.setText(self.tr("Generating...  In: %d | Out: %d | %.1f t/s")
-                               % (self._inTok, out, out / span))
+        try:
+            if self.worker is None:
+                return
+            el = time.time() - self._t0
+            if not self._streamText:
+                self.lblStatus.setText(self.tr("Thinking... %ds") % int(el))
+                return
+            out = self._outTok or P.estimateTokens(self._streamText)
+            span = max(time.time() - self._tFirst, 0.001)
+            self.lblStatus.setText(self.tr("Generating...  In: %d | Out: %d | %.1f t/s")
+                                   % (self._inTok, out, out / span))
+        except RuntimeError:
+            pass
 
     def _onChunk(self, text):
-        if not self._tFirst:
-            self._tFirst = time.time()
-        self._streamText += text
-        self.view.moveCursor(QTextCursor.End)
-        self.view.insertPlainText(text)
-        self.view.moveCursor(QTextCursor.End)
+        try:
+            if self.sender() is not None and self.sender() is not self.worker:
+                return
+            if not self._tFirst:
+                self._tFirst = time.time()
+            self._streamText += text
+            self.view.moveCursor(QTextCursor.End)
+            self.view.insertPlainText(text)
+            self.view.moveCursor(QTextCursor.End)
+        except RuntimeError:
+            pass
 
     def _onThinking(self):
         pass   # status line already shows "Thinking... Ns"
 
     def _onUsage(self, inTok, outTok):
+        if self.sender() is not None and self.sender() is not self.worker:
+            return
         self._inTok, self._outTok = inTok, outTok
 
     def _onFailed(self, msg):
-        # Roll back: the failed prompt must not poison later requests.
-        self._failed = msg
-        self.view.moveCursor(QTextCursor.End)
-        self.view.insertHtml('<br><span style="color:#d9534f">%s</span>'
-                             % html.escape(self.tr("Error: ") + msg))
-        if self._pending:
-            self.txtInput.setPlainText(self._pending)
-            self._pending = None
-        self._streamText = ""
+        try:
+            if self.sender() is not None and self.sender() is not self.worker:
+                return
+            self._failed = msg
+            self.view.moveCursor(QTextCursor.End)
+            self.view.insertHtml('<br><span style="color:#d9534f">%s</span>'
+                                 % html.escape(self.tr("Error: ") + msg))
+            if self._pending:
+                self.txtInput.setPlainText(self._pending)
+                self._pending = None
+            self._streamText = ""
+        except RuntimeError:
+            pass
 
     def _onCompleted(self, cancelled):
-        if cancelled:
-            self.view.insertHtml('<br><i>%s</i>' % html.escape(self.tr("[Generation cancelled]")))
-        if self._pending is not None and (self._streamText or not cancelled):
-            self.chat["messages"].append({"role": "user", "content": self._pending})
-            self.chat["messages"].append({"role": "assistant", "agent": self._streamAgent,
-                                          "content": self._streamText})
-            if not self.chat["id"]:
-                self.chat["id"] = self.store.newId()
-                self.chat["title"] = self.store.makeTitle(self._streamAgent, self._pending)
-                self.chat["project"] = self._project()
-            self.store.save(self.chat)
-        elif self._pending and cancelled:
-            self.txtInput.setPlainText(self._pending)
-        self._pending = None
+        try:
+            if self.sender() is not None and self.sender() is not self.worker:
+                return
+            if cancelled:
+                self.view.insertHtml('<br><i>%s</i>' % html.escape(self.tr("[Generation cancelled]")))
+            if self._pending is not None and (self._streamText or not cancelled):
+                self.chat["messages"].append({"role": "user", "content": self._pending})
+                self.chat["messages"].append({"role": "assistant", "agent": self._streamAgent,
+                                              "content": self._streamText})
+                if not self.chat["id"]:
+                    self.chat["id"] = self.store.newId()
+                    self.chat["title"] = self.store.makeTitle(self._streamAgent, self._pending)
+                    self.chat["project"] = self._project()
+                self.store.save(self.chat)
+            elif self._pending and cancelled:
+                self.txtInput.setPlainText(self._pending)
+            self._pending = None
+        except RuntimeError:
+            pass
+
+    def _onWorkerFinished(self, worker):
+        self._retireWorker(worker)
+        if worker is self.worker or self.worker is None:
+            self._onFinished()
 
     def _onFinished(self):
-        self._tick.stop()
-        self.worker.deleteLater()
-        self.worker = None
-        self.btnCancel.setVisible(False)
-        self.cmbProvider.setEnabled(True)
-        if self._streamText:
-            out = self._outTok or P.estimateTokens(self._streamText)
-            span = max(time.time() - (self._tFirst or self._t0), 0.001)
-            self.lblStatus.setText(self.tr("Done.  In: %d | Out: %d | %.1f t/s")
-                                   % (self._inTok, out, out / span))
-        self.refreshChatList()
+        try:
+            self._tick.stop()
+            if self.worker is not None:
+                self._retireWorker(self.worker)
+                self.worker = None
+            self.btnCancel.setVisible(False)
+            self.cmbProvider.setEnabled(True)
+            if self._streamText:
+                out = self._outTok or P.estimateTokens(self._streamText)
+                span = max(time.time() - (self._tFirst or self._t0), 0.001)
+                self.lblStatus.setText(self.tr("Done.  In: %d | Out: %d | %.1f t/s")
+                                       % (self._inTok, out, out / span))
+            self.refreshChatList()
+        except RuntimeError:
+            pass
 
     def cancel(self):
         if self.worker is not None:
@@ -497,7 +566,13 @@ class AIDock(QDockWidget):
 
     def shutdown(self):
         """Called from MainWindow.closeEvent."""
-        for w in (self.worker, self.modelsWorker):
+        self._tick.stop()
+        all_workers = set(self._activeWorkers)
+        if self.worker is not None:
+            all_workers.add(self.worker)
+        if self.modelsWorker is not None:
+            all_workers.add(self.modelsWorker)
+        for w in all_workers:
             if w is not None and w.isRunning():
                 if hasattr(w, "cancel"):
                     w.cancel()

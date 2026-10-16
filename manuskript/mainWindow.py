@@ -2157,7 +2157,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         menus = [
             (self.tr("Tree"), "Tree", "list-tree"),
-            (self.tr("Index cards"), "Cork", "cards"),
             (self.tr("Outline"), "Outline", "table")
         ]
 

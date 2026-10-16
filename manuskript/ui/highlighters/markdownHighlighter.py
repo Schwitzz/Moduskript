@@ -477,17 +477,22 @@ class MarkdownHighlighter(BasicHighlighter):
                     self.transparentFormat(fmt)
                     self.transparentFormat(markupFormat)
 
-            # Readable mode: collapse raw Markdown tokens on non-active blocks while keeping body text styled
+            # Readable mode: collapse raw Markdown tokens across all blocks (unless actively selecting text in that block)
             if settings.textEditor.get("readableMode", False):
-                active_block = self.editor.textCursor().block()
-                if self.currentBlock() != active_block:
+                cur = self.editor.textCursor()
+                is_selecting_here = (
+                    cur.hasSelection() and self.currentBlock() == cur.block()
+                )
+                if not is_selecting_here:
                     collapse_fmt = QTextCharFormat(markupFormat)
-                    c_trans = QColor(0, 0, 0, 0)
-                    collapse_fmt.setForeground(QBrush(c_trans))
-                    collapse_fmt.setBackground(QBrush(c_trans))
+                    bg_col = QColor(self.backgroundColor) if self.backgroundColor else QColor(255, 255, 255)
+                    bg_col.setAlpha(1)
+                    collapse_fmt.setForeground(QBrush(bg_col))
+                    collapse_fmt.setBackground(QBrush(bg_col))
                     f_tiny = QFont(collapse_fmt.font())
                     f_tiny.setPointSizeF(0.1)
                     f_tiny.setLetterSpacing(QFont.PercentageSpacing, 1.0)
+                    f_tiny.setStretch(1)
                     collapse_fmt.setFont(f_tiny)
                     markupFormat = collapse_fmt
 
