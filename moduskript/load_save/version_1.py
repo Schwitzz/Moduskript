@@ -1,0 +1,1270 @@
+#!/usr/bin/env python
+# --!-- coding: utf8 --!--
+
+# Version 1 of file saving format.
+# Aims at providing a plain-text way of saving a project
+# (except for some elements), allowing collaborative work
+# versioning and third-party editing.
+
+import os
+import re
+import shutil
+import string
+import zipfile
+from collections import OrderedDict
+
+from PyQt5.QtCore import Qt, QModelIndex
+from PyQt5.QtGui import QColor, QStandardItem
+from PyQt5.QtWidgets import QListWidgetItem
+
+from moduskript import settings
+from moduskript.enums import Character, World, Plot, PlotStep, Outline
+from moduskript.functions import mainWindow, iconColor, iconFromColorString
+from moduskript.converters import HTML2PlainText
+from lxml import etree as ET
+
+from moduskript.load_save.version_0 import loadFilesFromZip
+from moduskript.models.characterModel import CharacterInfo
+from moduskript.models import outlineItem
+from moduskript.ui.listDialog import ListDialog
+
+import logging
+LOGGER = logging.getLogger(__name__)
+_parser = ET.XMLParser(huge_tree=True)
+
+try:
+    import zlib  # Used with zipfile for compression
+
+    compression = zipfile.ZIP_DEFLATED
+except:
+    compression = zipfile.ZIP_STORED
+
+cache = {}
+
+
+characterMap = OrderedDict([
+    (Character.name, "Name"),
+    (Character.ID,   "ID"),
+    (Character.importance, "Importance"),
+    (Character.pov, "POV"),
+    (Character.motivation, "Motivation"),
+    (Character.goal, "Goal"),
+    (Character.conflict, "Conflict"),
+    (Character.epiphany, "Epiphany"),
+    (Character.summarySentence, "Phrase Summary"),
+    (Character.summaryPara, "Paragraph Summary"),
+    (Character.summaryFull, "Full Summary"),
+    (Character.notes, "Notes")
+])
+
+
+def formatMetaData(name, value, tabLength=10):
+
+    # Multiline formatting
+    if len(value.split("\n")) > 1:
+        value = "\n".join([" " * (tabLength + 1) + l for l in value.split("\n")])[tabLength + 1:]
+
+    # Avoid empty description (don't know how much MMD loves that)
+    if name == "":
+        name = "None"
+
+    # Escapes ":" in name
+    name = name.replace(":", "_.._")
+
+    return "{name}:{spaces}{value}\n".format(
+        name=name,
+        spaces=" " * (tabLength - len(name)),
+        value=value
+    )
+
+
+def slugify(name):
+    """
+    A basic slug function, that escapes all spaces to "_" and all non letters/digits to "-".
+    @param name: name to slugify (str)
+    @return: str
+    """
+    valid = string.ascii_letters + string.digits
+    newName = ""
+    for c in name:
+        if c in valid:
+            newName += c
+        elif c in string.whitespace:
+            newName += "_"
+        else:
+            newName += "-"
+    return newName
+
+
+def saveProject(zip=None):
+    """
+    Saves the project. If zip is False, the project is saved as a multitude of plain-text files for the most parts
+    and some XML or zip? for settings and stuff.
+    If zip is True, everything is saved as a single zipped file. Easier to carry around, but does not allow
+    collaborative work, versioning, or third-party editing.
+    @param zip: if True, saves as a single file. If False, saves as plain-text. If None, tries to determine based on
+    settings.
+    @return: True if successful, False otherwise.
+    """
+    if zip == None:
+        zip = settings.saveToZip
+
+    LOGGER.info("Saving to: %s", "zip" if zip else "folder")
+
+    # List of files to be written
+    files = []
+    # List of files to be removed
+    removes = []
+    # List of files to be moved
+    moves = []
+
+    # MainWindow interaction things.
+    mw = mainWindow()
+    project = mw.currentProject
+
+    # Sanity check (see PR-583): make sure we actually have a current project.
+    if project == None:
+        LOGGER.error("Cannot save project because there is no current project in the UI.")
+        return False
+
+    # File format version
+    files.append(("MANUSKRIPT", "1"))
+
+    # General infos (book and author)
+    # Saved in plain text, in infos.txt
+
+    path = "infos.txt"
+    content = ""
+    for name, col in [
+            ("Title", 0),
+            ("Subtitle", 1),
+            ("Serie", 2),
+            ("Volume", 3),
+            ("Genre", 4),
+            ("License", 5),
+            ("Author", 6),
+            ("Email", 7),
+            ]:
+        item = mw.mdlFlatData.item(0, col)
+        if item:
+            val = item.text().strip()
+        else:
+            val = ""
+
+        if val:
+            content += "{name}:{spaces}{value}\n".format(
+                name=name,
+                spaces=" " * (15 - len(name)),
+                value=val
+            )
+    files.append((path, content))
+
+    ####################################################################################################################
+    # Summary
+    # In plain text, in summary.txt
+
+    path = "summary.txt"
+    content = ""
+    for name, col in [
+            ("Situation", 0),
+            ("Sentence", 1),
+            ("Paragraph", 2),
+            ("Page", 3),
+            ("Full", 4),
+            ]:
+        item = mw.mdlFlatData.item(1, col)
+        if item:
+            val = item.text().strip()
+        else:
+            val = ""
+
+        if val:
+            content += formatMetaData(name, val, 12)
+
+    files.append((path, content))
+
+    ####################################################################################################################
+    # Label & Status
+    # In plain text
+
+    for mdl, path in [
+        (mw.mdlStatus, "status.txt"),
+        (mw.mdlLabels, "labels.txt")
+    ]:
+
+        content = ""
+
+        # We skip the first row, which is empty and transparent
+        for i in range(1, mdl.rowCount()):
+            color = ""
+            if mdl.data(mdl.index(i, 0), Qt.DecorationRole) != None:
+                color = iconColor(mdl.data(mdl.index(i, 0), Qt.DecorationRole)).name(QColor.HexRgb)
+                color = color if color != "#ff000000" else "#00000000"
+
+            text = mdl.data(mdl.index(i, 0))
+
+            if text:
+                content += "{name}{color}\n".format(
+                    name=text,
+                    color="" if color == "" else ":" + " " * (20 - len(text)) + color
+                )
+
+        files.append((path, content))
+
+    ####################################################################################################################
+    # Characters
+    # In a character folder
+
+    path = os.path.join("characters", "{name}.txt")
+    mdl = mw.mdlCharacter
+
+    # Review characters
+    for c in mdl.characters:
+
+        # Generates file's content
+        content = ""
+        for m in characterMap:
+            val = mdl.data(c.index(m.value)).strip()
+            if val:
+                content += formatMetaData(characterMap[m], val, 20)
+
+        # Character's color:
+        content += formatMetaData("Color", c.color().name(QColor.HexRgb), 20)
+
+        # Character's infos
+        for info in c.infos:
+            content += formatMetaData(info.description, info.value, 20)
+
+        # generate file's path
+        cpath = path.format(name="{ID}-{slugName}".format(
+            ID=c.ID(),
+            slugName=slugify(c.name())
+        ))
+
+        # Has the character been renamed?
+        if c.lastPath and cpath != c.lastPath:
+            moves.append((c.lastPath, cpath))
+
+        # Update character's path
+        c.lastPath = cpath
+
+        files.append((cpath, content))
+
+    ####################################################################################################################
+    # Texts
+    # In an outline folder
+
+    mdl = mw.mdlOutline
+
+    # Go through the tree
+    f, m, r = exportOutlineItem(mdl.rootItem)
+    files += f
+    moves += m
+    removes += r
+
+    # Writes revisions (if asked for)
+    if settings.revisions["keep"]:
+        files.append(("revisions.xml", mdl.saveToXML()))
+
+    ####################################################################################################################
+    # World
+    # Either in an XML file, or in lots of plain texts?
+    # More probably text, since there might be writing done in third-party.
+
+    path = "world.opml"
+    mdl = mw.mdlWorld
+
+    root = ET.Element("opml")
+    root.attrib["version"] = "1.0"
+    body = ET.SubElement(root, "body")
+    addWorldItem(body, mdl)
+    content = ET.tostring(root, encoding="UTF-8", xml_declaration=True, pretty_print=True)
+    files.append((path, content))
+
+    ####################################################################################################################
+    # Plots (mw.mdlPlots)
+    # Either in XML or lots of plain texts?
+    # More probably XML since there is not really a lot if writing to do (third-party)
+
+    path = "plots.xml"
+    mdl = mw.mdlPlots
+
+    root = ET.Element("root")
+    addPlotItem(root, mdl)
+    content = ET.tostring(root, encoding="UTF-8", xml_declaration=True, pretty_print=True)
+    files.append((path, content))
+
+    ####################################################################################################################
+    # Settings
+    # Saved in readable text (json) for easier versioning. But they mustn't be shared, it seems.
+    # Maybe include them only if zipped?
+    # Well, for now, we keep them here...
+
+    files.append(("settings.txt", settings.save(protocol=0)))
+
+    ####################################################################################################################
+    # Whiteboards (whiteboards.json)
+    global cache
+    if hasattr(mw, "whiteboardView") and mw.whiteboardView is not None:
+        wb_data = mw.whiteboardView.toDict()
+        has_wb_content = (
+            len(wb_data.get("boards", [])) > 1
+            or any(b.get("nodes") or b.get("edges") for b in wb_data.get("boards", []))
+            or ("whiteboards.json" in cache)
+        )
+        if has_wb_content:
+            files.append(("whiteboards.json", mw.whiteboardView.saveJson()))
+
+    # We check if the file exist and we have write access. If the file does
+    # not exist, we check the parent folder, because it might be a new project.
+    if os.path.exists(project) and not os.access(project, os.W_OK) or \
+       not os.path.exists(project) and not os.access(os.path.dirname(project), os.W_OK):
+        LOGGER.error("You don't have write access to save this project there.")
+        return False
+
+    ####################################################################################################################
+    # Save to zip
+
+    if zip:
+        # project = os.path.join(
+        #     os.path.dirname(project),
+        #     "_" + os.path.basename(project)
+        # )
+
+        zf = zipfile.ZipFile(project, mode="w")
+
+        for filename, content in files:
+            zf.writestr(filename, content, compress_type=compression)
+
+        zf.close()
+        return True
+
+    ####################################################################################################################
+    # Save to plain text
+
+    else:
+        filesWithPermissionErrors = list()
+
+        # Project path
+        dir = os.path.dirname(project)
+
+        # Folder containing file: name of the project file (without .msk extension)
+        folder = os.path.splitext(os.path.basename(project))[0]
+        projectFolder = os.path.join(dir, folder)
+
+        # Debug
+        LOGGER.debug("Saving to folder %s", folder)
+
+        # If cache is empty (meaning we haven't loaded from disk), we wipe folder, just to be sure.
+        if not cache:
+            if os.path.exists(projectFolder):
+                shutil.rmtree(projectFolder)
+
+        # Write .lock marker while saving so the Web Server (synclock.py) waits / avoids concurrent write races
+        os.makedirs(projectFolder, exist_ok=True)
+        lock_file = os.path.join(projectFolder, ".lock")
+        try:
+            import json as _json, time as _time
+            with open(lock_file, "wt", encoding="utf8") as lf:
+                lf.write(_json.dumps({"owner": "desktop", "pid": os.getpid(), "at": _time.time()}))
+        except OSError:
+            pass
+
+        # Moving files that have been renamed
+        for old, new in moves:
+
+            # Get full path
+            oldPath = os.path.join(dir, folder, old)
+            newPath = os.path.join(dir, folder, new)
+
+            # Move the old file to the new place
+            try:
+                os.replace(oldPath, newPath)
+                LOGGER.debug("* Renaming/moving {} to {}".format(old, new))
+            except FileNotFoundError:
+                # Maybe parent folder has been renamed
+                pass
+
+            # Update cache
+            cache2 = {}
+            for f in cache:
+                f2 = f.replace(old, new)
+                if f2 != f:
+                    LOGGER.debug("  * Updating cache: %s, %s", f, f2)
+                cache2[f2] = cache[f]
+            cache = cache2
+
+        # Writing files
+        for path, content in files:
+            filename = os.path.join(dir, folder, path)
+            os.makedirs(os.path.dirname(filename), exist_ok=True)
+
+            # Check if content is in cache, and write if necessary
+            if path not in cache or cache[path] != content:
+                LOGGER.debug("* Writing file {} ({})".format(path, "not in cache" if path not in cache else "different"))
+                # mode = "w" + ("b" if type(content) == bytes else "")
+                if type(content) == bytes:
+                    try:
+                        with open(filename, "wb") as f:
+                            f.write(content)
+                    except PermissionError as e:
+                        LOGGER.error("Cannot open file " + filename + " for writing: " + e.strerror)
+                        filesWithPermissionErrors.append(filename)
+                else:
+                    try:
+                        with open(filename, "wt", encoding="utf8", newline="\n") as f:
+                            f.write(content)
+                    except PermissionError as e:
+                        LOGGER.error("Cannot open file " + filename + " for writing: " + e.strerror)
+                        filesWithPermissionErrors.append(filename)
+
+                cache[path] = content
+
+        # Removing phantoms
+        for path in [p for p in cache if p not in [p for p, c in files]]:
+            filename = os.path.join(dir, folder, path)
+            LOGGER.debug("* Removing %s", path)
+
+            if os.path.isdir(filename):
+                shutil.rmtree(filename)
+
+            else:  # elif os.path.exists(filename)
+                os.remove(filename)
+
+            # Clear cache
+            cache.pop(path, 0)
+
+        # Removing empty directories
+        for root, dirs, files in os.walk(os.path.join(dir, folder, "outline")):
+            for dir in dirs:
+                newDir = os.path.join(root, dir)
+                try:
+                    os.removedirs(newDir)
+                    LOGGER.debug("* Removing empty directory: %s", newDir)
+                except:
+                    # Directory not empty, we don't remove.
+                    pass
+
+        # Write the project file's content
+        try:
+            with open(project, "wt", encoding="utf8", newline="\n") as f:
+                f.write("1")  # Format number
+        except PermissionError as e:
+            LOGGER.error("Cannot open file " + project + " for writing: " + e.strerror)
+            filesWithPermissionErrors.append(project)
+        finally:
+            try:
+                if os.path.exists(lock_file):
+                    os.remove(lock_file)
+            except OSError:
+                pass
+
+        if len(filesWithPermissionErrors) > 0:
+            dlg = ListDialog(mw)
+            dlg.setModal(True)
+            dlg.setWindowTitle(dlg.tr("Files not saved"))
+            dlg.label.setText(dlg.tr("The following files were not saved and appear to be open in another program"))
+            for f in filesWithPermissionErrors:
+                QListWidgetItem(f, dlg.listWidget)
+            dlg.open()
+
+        if project in filesWithPermissionErrors:
+            return False
+        return True
+
+
+def addWorldItem(root, mdl, parent=QModelIndex()):
+    """
+    Lists elements in a world model and create an OPML xml file.
+    @param root: an Etree element
+    @param mdl:  a worldModel
+    @param parent: the parent index in the world model
+    @return: root, to which sub element have been added
+    """
+    # List every row (every world item)
+    for x in range(mdl.rowCount(parent)):
+
+        # For each row, create an outline item.
+        outline = ET.SubElement(root, "outline")
+        for y in range(mdl.columnCount(parent)):
+
+            val = mdl.data(mdl.index(x, y, parent))
+
+            if not val:
+                continue
+
+            for w in World:
+                if y == w.value:
+                    outline.attrib[w.name] = val
+
+            if mdl.hasChildren(mdl.index(x, y, parent)):
+                addWorldItem(outline, mdl, mdl.index(x, y, parent))
+
+    return root
+
+
+def addPlotItem(root, mdl, parent=QModelIndex()):
+    """
+    Lists elements in a plot model and create an xml file.
+    @param root: an Etree element
+    @param mdl:  a plotModel
+    @param parent: the parent index in the plot model
+    @return: root, to which sub element have been added
+    """
+
+    # List every row (every plot item)
+    for x in range(mdl.rowCount(parent)):
+
+        # For each row, create an outline item.
+        outline = ET.SubElement(root, "plot")
+        for y in range(mdl.columnCount(parent)):
+
+            index = mdl.index(x, y, parent)
+            val = mdl.data(index)
+            #
+            # if not val:
+            #     continue
+
+            for w in Plot:
+                if y == w.value and val:
+                    outline.attrib[w.name] = val
+
+            # List characters as attrib
+            if y == Plot.characters:
+                if mdl.hasChildren(index):
+                    characters = []
+                    for cX in range(mdl.rowCount(index)):
+                        for cY in range(mdl.columnCount(index)):
+                            cIndex = mdl.index(cX, cY, index)
+                            characters.append(mdl.data(cIndex))
+                    outline.attrib[Plot.characters.name] = ",".join(characters)
+
+                elif Plot.characters.name in outline.attrib:
+                    outline.attrib.pop(Plot.characters.name)
+
+            # List resolution steps as sub items
+            elif y == Plot.steps:
+                if mdl.hasChildren(index):
+                    for cX in range(mdl.rowCount(index)):
+                        step = ET.SubElement(outline, "step")
+                        for cY in range(mdl.columnCount(index)):
+                            cIndex = mdl.index(cX, cY, index)
+                            # If empty, returns None, which creates trouble later with lxml, so default to ""
+                            val = mdl.data(cIndex) or ""
+
+                            for w in PlotStep:
+                                if cY == w.value and w.name:
+                                    step.attrib[w.name] = val
+
+                elif Plot.steps.name in outline.attrib:
+                    outline.attrib.pop(Plot.steps.name)
+
+    return root
+
+
+def exportOutlineItem(root):
+    """
+    Takes an outline item, and returns three lists:
+    1. of (`filename`, `content`), representing the whole tree of files to be written, in multimarkdown.
+    2. of (`filename`, `filename`) listing files to be moved
+    3. of `filename`, representing files to be removed.
+
+    @param root: OutlineItem
+    @return: [(str, str)], [(str, str)], [str]
+    """
+
+    files = []
+    moves = []
+    removes = []
+
+    k = 0
+    for child in root.children():
+        spath = os.path.join(*outlineItemPath(child))
+
+        k += 1
+
+        # Has the item been renamed?
+        lp = child._lastPath
+        if lp and spath != lp:
+            moves.append((lp, spath))
+            LOGGER.debug("%s has been renamed (%s → %s)", child.title(), lp,  spath)
+            LOGGER.debug(" → We mark for moving: %s", lp)
+
+        # Updates item last's path
+        child._lastPath = spath
+
+        # Generating content
+        if child.type() == "folder":
+            fpath = os.path.join(spath, "folder.txt")
+            content = outlineToMMD(child)
+            files.append((fpath, content))
+
+        elif child.type() == "md":
+            content = outlineToMMD(child)
+            files.append((spath, content))
+
+        else:
+            LOGGER.debug("Unknown type: %s", child.type())
+
+        f, m, r = exportOutlineItem(child)
+        files += f
+        moves += m
+        removes += r
+
+    return files, moves, removes
+
+
+def outlineItemPath(item):
+    """
+    Returns the outlineItem file path (like the path where it will be written on the disk). As a list of folder's
+    name. To be joined by os.path.join.
+    @param item: outlineItem
+    @return: list of folder's names
+    """
+    # Root item
+    if not item.parent():
+        return ["outline"]
+    else:
+        # Count the number of siblings for padding '0'
+        siblings = item.parent().childCount()
+
+        # We check if multiple items have the same name
+        # If so, we add "-ID" to their name
+        siblingsNames = [s.title() for s in item.parent().children()]
+        if siblingsNames.count(item.title()) > 1:
+            title = "{}-{}".format(item.title(), item.ID())
+        else:
+            title = item.title()
+
+        name = "{ID}-{name}{ext}".format(
+            ID=str(item.row()).zfill(len(str(siblings))),
+            name=slugify(title),
+            ext="" if item.type() == "folder" else ".md"
+        )
+        return outlineItemPath(item.parent()) + [name]
+
+
+def outlineToMMD(item):
+    content = ""
+
+    # We don't want to write some datas (computed)
+    exclude = [Outline.wordCount, Outline.goal, Outline.goalPercentage, Outline.revisions, Outline.text]
+    # We want to force some data even if they're empty
+    force = [Outline.compile]
+
+    for attrib in Outline:
+        if attrib in exclude:
+            continue
+        val = item.data(attrib.value)
+        if val or attrib in force:
+            content += formatMetaData(attrib.name, str(val), 15)
+
+    content += "\n\n"
+    content += item.data(Outline.text)
+
+    return content
+
+########################################################################################################################
+# LOAD
+########################################################################################################################
+
+def loadProject(project, zip=None):
+    """
+    Loads a project.
+    @param project: the filename of the project to open.
+    @param zip: whether the project is a zipped or not.
+    @return: an array of errors, empty if None.
+    """
+
+    mw = mainWindow()
+    errors = list()
+    filesWithPermissionErrors = list()
+
+    ####################################################################################################################
+    # Read and store everything in a dict
+
+    LOGGER.debug("Loading {} ({})".format(project, "zip" if zip else "folder"))
+    if zip:
+        files = loadFilesFromZip(project)
+
+        # Decode files
+        for f in files:
+            if f[-4:] not in [".xml", "opml"]:
+                files[f] = files[f].decode("utf-8")
+
+    else:
+        # Project path
+        dir = os.path.dirname(project)
+
+        # Folder containing file: name of the project file (without .msk extension)
+        folder = os.path.splitext(os.path.basename(project))[0]
+
+        # The full path towards the folder containing files
+        path = os.path.join(dir, folder, "")
+
+        files = {}
+        for dirpath, dirnames, filenames in os.walk(path):
+            p = dirpath.replace(path, "")
+            # Skip directories that begin with a period
+            if p[:1] == ".":
+                continue
+            #skip if the basedir of the file starts with an .
+            if os.path.basename(p)[:1] == ".":
+                continue
+            for f in filenames:
+                # Skip filenames that begin with a period
+                if f[:1] == ".":
+                    continue
+                # mode = "r" + ("b" if f[-4:] in [".xml", "opml"] else "")
+                if f[-4:] in [".xml", "opml"]:
+                    with open(os.path.join(dirpath, f), "rb") as fo:
+                        files[os.path.join(p, f)] = fo.read()
+                else:
+                    try:
+                        filename = os.path.join(dirpath, f)
+                        with open(filename, 'rt', encoding="utf8") as fo:
+                            files[os.path.join(p, f)] = fo.read()
+
+                    except (UnicodeDecodeError, FileNotFoundError, IsADirectoryError) as e:
+                         LOGGER.error("Ignore file " + filename + " because of the error: " + e.reason)
+                         
+                    except PermissionError as e:
+                        LOGGER.error("Cannot open file " + filename + ": " + e.strerror)
+                        errors.append(fo)
+                        filesWithPermissionErrors.append(filename)
+
+        # Saves to cache (only if we loaded from disk and not zip)
+        global cache
+        cache = files
+
+        # FIXME: watch directory for changes
+
+    # Sort files by keys
+    files = OrderedDict(sorted(files.items()))
+
+    ####################################################################################################################
+    # Settings
+
+    if "settings.txt" in files:
+        settings.load(files["settings.txt"], fromString=True, protocol=0)
+    else:
+        errors.append("settings.txt")
+
+    # Just to be sure
+    settings.saveToZip = True if zip else False
+    settings.defaultTextType = "md"
+
+    ####################################################################################################################
+    # Labels
+
+    mdl = mw.mdlLabels
+    mdl.appendRow(QStandardItem(""))  # Empty = No labels
+    if "labels.txt" in files:
+        LOGGER.debug("Reading labels:")
+        for s in files["labels.txt"].split("\n"):
+            if not s:
+                continue
+
+            m = re.search(r"^(.*?):\s*(.*)$", s)
+            txt = m.group(1)
+            col = m.group(2)
+            LOGGER.debug("* Add status: {} ({})".format(txt, col))
+            icon = iconFromColorString(col)
+            mdl.appendRow(QStandardItem(icon, txt))
+
+    else:
+        errors.append("labels.txt")
+
+    ####################################################################################################################
+    # Status
+
+    mdl = mw.mdlStatus
+    mdl.appendRow(QStandardItem(""))  # Empty = No status
+    if "status.txt" in files:
+        LOGGER.debug("Reading status:")
+        for s in files["status.txt"].split("\n"):
+            if not s:
+                continue
+            LOGGER.debug("* Add status: %s", s)
+            mdl.appendRow(QStandardItem(s))
+    else:
+        errors.append("status.txt")
+
+    ####################################################################################################################
+    # Infos
+
+    mdl = mw.mdlFlatData
+    if "infos.txt" in files:
+        md, body = parseMMDFile(files["infos.txt"], asDict=True)
+
+        row = []
+        for name in ["Title", "Subtitle", "Serie", "Volume", "Genre", "License", "Author", "Email"]:
+            row.append(QStandardItem(md.get(name, "")))
+
+        mdl.appendRow(row)
+
+    else:
+        errors.append("infos.txt")
+
+    ####################################################################################################################
+    # Summary
+
+    mdl = mw.mdlFlatData
+    if "summary.txt" in files:
+        md, body = parseMMDFile(files["summary.txt"], asDict=True)
+
+        row = []
+        for name in ["Situation", "Sentence", "Paragraph", "Page", "Full"]:
+            row.append(QStandardItem(md.get(name, "")))
+
+        mdl.appendRow(row)
+
+    else:
+        errors.append("summary.txt")
+
+    ####################################################################################################################
+    # Plots
+
+    mdl = mw.mdlPlots
+    if "plots.xml" in files:
+        LOGGER.debug("Reading plots:")
+        # xml = bytearray(files["plots.xml"], "utf-8")
+        root = ET.fromstring(files["plots.xml"])
+
+        for plot in root:
+            # Create row
+            row = getStandardItemRowFromXMLEnum(plot, Plot)
+
+            # Log
+            LOGGER.debug("* Add plot: %s", row[0].text())
+
+            # Characters
+            if row[Plot.characters].text():
+                IDs = row[Plot.characters].text().split(",")
+                item = QStandardItem()
+                for ID in IDs:
+                    item.appendRow(QStandardItem(ID.strip()))
+                row[Plot.characters] = item
+
+            # Subplots
+            for step in plot:
+                row[Plot.steps].appendRow(
+                    getStandardItemRowFromXMLEnum(step, PlotStep)
+                )
+
+            # Add row to the model
+            mdl.appendRow(row)
+
+    else:
+        errors.append("plots.xml")
+
+    ####################################################################################################################
+    # World
+
+    mdl = mw.mdlWorld
+    if "world.opml" in files:
+        LOGGER.debug("Reading World:")
+        # xml = bytearray(files["plots.xml"], "utf-8")
+        root = ET.fromstring(files["world.opml"])
+        body = root.find("body")
+
+        for outline in body:
+            row = getOutlineItem(outline, World)
+            mdl.appendRow(row)
+
+    else:
+        errors.append("world.opml")
+
+    ####################################################################################################################
+    # Characters
+
+    mdl = mw.mdlCharacter
+    LOGGER.debug("Reading Characters:")
+    for f in [f for f in files if "characters" in f]:
+        md, body = parseMMDFile(files[f])
+        c = mdl.addCharacter()
+        c.lastPath = f
+
+        color = False
+        for desc, val in md:
+
+            # Base infos
+            if desc in characterMap.values():
+                key = [key for key, value in characterMap.items() if value == desc][0]
+                index = c.index(key.value)
+                mdl.setData(index, val)
+
+            # Character color
+            elif desc == "Color" and not color:
+                c.setColor(QColor(val))
+                # We remember the first time we found "Color": it is the icon color.
+                # If "Color" comes a second time, it is a Character's info.
+                color = True
+
+            # Character's infos
+            else:
+                c.infos.append(CharacterInfo(c, desc, val))
+
+        LOGGER.debug("* Adds {} ({})".format(c.name(), c.ID()))
+
+    ####################################################################################################################
+    # Texts
+    # We read outline form the outline folder. If revisions are saved, then there's also a revisions.xml which contains
+    # everything, but the outline folder takes precedence (in cases it's been edited outside of manuskript.
+
+    mdl = mw.mdlOutline
+    LOGGER.debug("Reading outline:")
+    paths = [f for f in files if "outline" in f]
+    outline = OrderedDict()
+
+    # We create a structure of imbricated OrderedDict to store the whole tree.
+    for f in paths:
+        split = f.split(os.path.sep)[1:]
+        # LOGGER.debug("* %s", split)
+
+        last = ""
+        parent = outline
+        parentLastPath = "outline"
+        for i in split:
+            if last:
+                parent = parent[last]
+                parentLastPath = os.path.join(parentLastPath, last)
+            last = i
+
+            if not i in parent:
+                # If not last item, then it is a folder
+                if i != split[-1]:
+                    parent[i] = OrderedDict()
+
+                # If file, we store it
+                else:
+                    parent[i] = files[f]
+
+                # We store f to add it later as lastPath
+                parent[i + ":lastPath"] = os.path.join(parentLastPath, i)
+
+
+
+    # We now just have to recursively add items.
+    addTextItems(mdl, outline)
+
+    # Adds revisions
+    if "revisions.xml" in files:
+        root = ET.fromstring(files["revisions.xml"], parser=_parser)
+        appendRevisions(mdl, root)
+
+    # Check IDS
+    mdl.rootItem.checkIDs()
+
+    ####################################################################################################################
+    # Whiteboards
+    if hasattr(mw, "whiteboardView") and mw.whiteboardView is not None:
+        if "whiteboards.json" in files:
+            mw.whiteboardView.loadJson(files["whiteboards.json"])
+        else:
+            mw.whiteboardView.clearBoards()
+
+    if len(filesWithPermissionErrors) > 0:
+        dlg = ListDialog(mw)
+        dlg.setModal(True)
+        dlg.setWindowTitle(dlg.tr("Files not loaded"))
+        dlg.label.setText(dlg.tr("The following files were not loaded and appear to be open in another program"))
+        for f in filesWithPermissionErrors:
+            QListWidgetItem(f, dlg.listWidget)
+        dlg.open()
+
+    return errors
+
+
+def addTextItems(mdl, odict, parent=None):
+    """
+    Adds a text / outline items from an OrderedDict.
+    @param mdl: model to add to
+    @param odict: OrderedDict
+    @return: nothing
+    """
+    if parent is None:
+        parent = mdl.rootItem
+
+    for k in odict:
+
+        # In case k is a folder:
+        if (type(odict[k]) == OrderedDict) and ("folder.txt" in odict[k]):
+
+            # Adds folder
+            LOGGER.debug("{}* Adds {} to {} (folder)".format("  " * parent.level(), k, parent.title()))
+            item = outlineFromMMD(odict[k]["folder.txt"], parent=parent)
+            item._lastPath = odict[k + ":lastPath"]
+
+            # Read content
+            addTextItems(mdl, odict[k], parent=item)
+
+        if (":lastPath" in k) or (k == "folder.txt"):
+            continue
+
+        # k is not a folder
+        if type(odict[k]) == str:
+            try:
+                LOGGER.debug("{}* Adds {} to {} (file)".format("  " * parent.level(), k, parent.title()))
+                item = outlineFromMMD(odict[k], parent=parent)
+                item._lastPath = odict[k + ":lastPath"]
+            except KeyError:
+                LOGGER.error(f"Failed to add file {k}")
+        else:
+            LOGGER.debug(f"Strange things in file {k}")
+
+
+def outlineFromMMD(text, parent):
+    """
+    Creates outlineItem from multimarkdown file.
+    @param text: content of the file
+    @param parent: appends item to parent (outlineItem)
+    @return: outlineItem
+    """
+
+    md, body = parseMMDFile(text, asDict=True)
+
+    # Assign ID on creation, to avoid generating a new ID for this object
+    item = outlineItem(parent=parent, ID=md.pop('ID'))
+
+    # Store metadata
+    for k in md:
+        if k in Outline.__members__:
+            item.setData(Outline.__members__[k], str(md[k]))
+
+    # Store body
+    item.setData(Outline.text, str(body))
+
+    # Set file format to "md"
+    # (Old version of manuskript had different file formats: text, t2t, html and md)
+    # If file format is html, convert to plain text:
+    if item.type() == "html":
+        item.setData(Outline.text, HTML2PlainText(body))
+    if item.type() in ["txt", "t2t", "html"]:
+        item.setData(Outline.type, "md")
+
+    return item
+
+
+def appendRevisions(mdl, root):
+    """
+    Parse etree item to find outlineItem's with revisions, and adds them to model `mdl`.
+    @param mdl: outlineModel
+    @param root: etree
+    @return: nothing
+    """
+    for child in root:
+        # Recursively go through items
+        if child.tag == "outlineItem":
+            appendRevisions(mdl, child)
+
+        # Revision found.
+        elif child.tag == "revision":
+            # Get root's ID
+            ID = root.attrib["ID"]
+            if not ID:
+                LOGGER.debug("* Serious problem: no ID!")
+                LOGGER.error("Revision has no ID associated!")
+                continue
+
+            # Find outline item in model
+            item = mdl.getItemByID(ID)
+            if not item:
+                LOGGER.debug("* Error: no item whose ID is %s", ID)
+                LOGGER.error("Could not identify the item matching the revision ID.")
+                continue
+
+            # Store revision
+            LOGGER.debug("* Appends revision ({}) to {}".format(child.attrib["timestamp"], item.title()))
+            item.appendRevision(child.attrib["timestamp"], child.attrib["text"])
+
+
+def getOutlineItem(item, enum):
+    """
+    Reads outline items from an opml file. Returns a row of QStandardItem, easy to add to a QStandardItemModel.
+    @param item: etree item
+    @param enum: enum to read keys from
+    @return: [QStandardItem]
+    """
+    row = getStandardItemRowFromXMLEnum(item, enum)
+    LOGGER.debug("* Add worldItem: %s", row[0].text())
+    for child in item:
+        sub = getOutlineItem(child, enum)
+        row[0].appendRow(sub)
+
+    return row
+
+
+def getStandardItemRowFromXMLEnum(item, enum):
+    """
+    Reads and etree item and creates a row of QStandardItems by cross-referencing an enum.
+    Returns a list of QStandardItems that can be added to a QStandardItemModel by appendRow.
+    @param item: the etree item
+    @param enum: the enum
+    @return: list of QStandardItems
+    """
+    row = []
+    for i in range(len(enum)):
+        row.append(QStandardItem(""))
+
+    for name in item.attrib:
+        if name in enum.__members__:
+            row[enum[name].value] = QStandardItem(item.attrib[name])
+    return row
+
+def parseMMDFile(text, asDict=False):
+    """
+    Takes the content of a MultiMarkDown file (str) and returns:
+    1. A list containing metadatas: (description, value) if asDict is False.
+       If asDict is True, returns metadatas as an OrderedDict. Be aware that if multiple metadatas have the same description
+       (which is stupid, but hey), they will be lost except the last one.
+    2. The body of the file
+    @param text: the content of the file
+    @return: (list, str) or (OrderedDict, str)
+    """
+    md = []
+    mdd = OrderedDict()
+    body = []
+    descr = ""
+    val = ""
+    inBody = False
+    for s in text.split("\n"):
+        if not inBody:
+            m = re.match(r"^([^\s].*?):\s*(.*)$", s)
+            if m:
+                # Commit last metadata
+                if descr:
+                    if descr == "None":
+                        descr = ""
+                    md.append((descr, val))
+                    mdd[descr] = val
+                descr = ""
+                val = ""
+
+                # Store new values
+                descr = m.group(1)
+                val = m.group(2)
+
+            elif s[:4] == "    ":
+                val += "\n" + s.strip()
+
+            elif s == "":
+                # End of metadatas
+                inBody = True
+
+                # Commit last metadata
+                if descr:
+                    if descr == "None":
+                        descr = ""
+                    md.append((descr, val))
+                    mdd[descr] = val
+
+        else:
+            body.append(s)
+
+    # We remove the second empty line (since we save with two empty lines)
+    if body and body[0] == "":
+        body = body[1:]
+
+    body = "\n".join(body)
+
+    if not asDict:
+        return md, body
+    else:
+        return mdd, body
+
+
+def syncExternalChangesInPlace(project):
+    """Apply external Web App edits (scene text/metadata, whiteboards.json) in-place
+    into the existing `mdlOutline` and `whiteboardView` without destroying models or closing tabs.
+    Returns True if all external changes were synced in-place, or False if a full reload is needed.
+    """
+    global cache
+    if not project or not cache:
+        return False
+
+    dir_name = os.path.dirname(project)
+    folder = os.path.splitext(os.path.basename(project))[0]
+    path = os.path.join(dir_name, folder, "")
+    if not os.path.isdir(path):
+        return False
+
+    disk_files = {}
+    for dirpath, _dirnames, filenames in os.walk(path):
+        p = dirpath.replace(path, "")
+        if p[:1] == "." or os.path.basename(p)[:1] == ".":
+            continue
+        for f in filenames:
+            if f[:1] == ".":
+                continue
+            rel = os.path.join(p, f)
+            full = os.path.join(dirpath, f)
+            try:
+                if f[-4:] in [".xml", "opml"]:
+                    with open(full, "rb") as fo:
+                        disk_files[rel] = fo.read()
+                else:
+                    with open(full, "rt", encoding="utf8") as fo:
+                        disk_files[rel] = fo.read()
+            except Exception:
+                return False
+
+    # Ignore revisions.xml / MANUSKRIPT marker differences
+    ignore_keys = {"revisions.xml", "MANUSKRIPT"}
+    cached_keys = {k for k in cache.keys() if k not in ignore_keys}
+    disk_keys = {k for k in disk_files.keys() if k not in ignore_keys}
+
+    # If outline files were added, removed, or renamed on disk, require a safe full reload
+    cached_outline_keys = {k for k in cached_keys if k.startswith("outline")}
+    disk_outline_keys = {k for k in disk_keys if k.startswith("outline")}
+    if cached_outline_keys != disk_outline_keys:
+        return False
+
+    # If non-outline, non-whiteboard files changed (e.g. characters, plots, world), require a safe full reload
+    for k in (cached_keys | disk_keys) - cached_outline_keys - {"whiteboards.json", "settings.txt"}:
+        if cache.get(k) != disk_files.get(k):
+            return False
+
+    mw = mainWindow()
+    if mw is None or getattr(mw, "mdlOutline", None) is None:
+        return False
+
+    # Build map of `_lastPath` -> `outlineItem`
+    path_to_item = {}
+
+    def _walk(item):
+        lp = getattr(item, "_lastPath", None)
+        if lp:
+            path_to_item[lp] = item
+        for c in item.children():
+            _walk(c)
+
+    _walk(mw.mdlOutline.rootItem)
+
+    # Update changed outline items in-place
+    for rel_path in disk_outline_keys:
+        if disk_files[rel_path] != cache.get(rel_path):
+            itm = path_to_item.get(rel_path)
+            if itm is None:
+                return False
+            md, body = parseMMDFile(disk_files[rel_path], asDict=True)
+            md.pop("ID", None)
+            for k, val in md.items():
+                if k in Outline.__members__:
+                    col = Outline.__members__[k]
+                    if itm.data(col) != str(val):
+                        itm.setData(col, str(val))
+            if not itm.isFolder() and itm.data(Outline.text) != str(body):
+                itm.setData(Outline.text, str(body))
+            cache[rel_path] = disk_files[rel_path]
+
+    # Update whiteboards.json in-place if changed
+    if "whiteboards.json" in disk_files and disk_files["whiteboards.json"] != cache.get("whiteboards.json"):
+        cache["whiteboards.json"] = disk_files["whiteboards.json"]
+        if hasattr(mw, "whiteboardView") and mw.whiteboardView is not None:
+            mw.whiteboardView.loadJson(disk_files["whiteboards.json"])
+
+    if "revisions.xml" in disk_files:
+        cache["revisions.xml"] = disk_files["revisions.xml"]
+
+    return True

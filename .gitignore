@@ -8,10 +8,13 @@
 *.pyc
 *.glade~
 .cache
+.cortexkit
 .directory
+.hypothesis
 .idea
 .project
 .pydevproject
+.pytest_cache
 .python-version
 .settings/org.eclipse.core.resources.prefs
 .vscode
@@ -21,8 +24,10 @@ Notes.t2t
 dist
 build
 icons/Numix
-manuskript/pycallgraph.txt
-manuskript.log
+moduskript/pycallgraph.txt
+moduskript.log
+screens
 snowflake*
 test-projects
+venv
 main.pyproject.user

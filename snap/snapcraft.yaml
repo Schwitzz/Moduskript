@@ -20,7 +20,7 @@ adopt-info: manuskript
 grade: stable
 confinement: strict
 base: core24
-icon: icons/Manuskript/manuskript.svg
+icon: icons/Moduskript/moduskript.svg
 layout:
   /usr/share/pandoc/data/templates:
     bind: $SNAP/usr/share/pandoc/data/templates
@@ -29,7 +29,7 @@ layout:
 
 apps:
   manuskript:
-    command: bin/desktop-launch $SNAP/bin/manuskript
+    command: bin/desktop-launch $SNAP/bin/moduskript
     environment:
       # Fallback to XWayland if running in a Wayland session.
       DISABLE_WAYLAND: 1

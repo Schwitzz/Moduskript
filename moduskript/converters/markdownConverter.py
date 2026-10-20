@@ -1,0 +1,41 @@
+#!/usr/bin/env python
+# --!-- coding: utf8 --!--
+import os
+import shutil
+import subprocess
+
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import qApp, QMessageBox
+from PyQt5.QtGui import QCursor
+
+from moduskript.converters import abstractConverter
+from moduskript.functions import mainWindow
+
+import logging
+LOGGER = logging.getLogger(__name__)
+
+try:
+    import markdown as MD
+except ImportError:
+    MD = None
+
+
+class markdownConverter(abstractConverter):
+    """
+    Converter using python module markdown.
+    """
+
+    name = "python module markdown"
+
+    @classmethod
+    def isValid(self):
+        return MD != None
+
+    @classmethod
+    def convert(self, markdown):
+        if not self.isValid:
+            LOGGER.error("markdownConverter is called but not valid.")
+            return ""
+
+        html = MD.markdown(markdown)
+        return html
