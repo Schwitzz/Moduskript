@@ -3,10 +3,10 @@
 
 # Build macOS specific icon set
 
-ICON_FOLDER=icons/Manuskript
+ICON_FOLDER=icons/Moduskript
 FULLSIZE_ICON=$ICON_FOLDER/icon-512px.png
 TMP_ICONSET_FOLDER=$ICON_FOLDER/Manuskript.iconset
-TARGET_ICONSET=$ICON_FOLDER/Manuskript.icns
+TARGET_ICONSET=$ICON_FOLDER/Moduskript.icns
 mkdir $TMP_ICONSET_FOLDER
 sips -z 16 16     $FULLSIZE_ICON --out $TMP_ICONSET_FOLDER/icon_16x16.png
 sips -z 32 32     $FULLSIZE_ICON --out $TMP_ICONSET_FOLDER/icon_16x16@2x.png

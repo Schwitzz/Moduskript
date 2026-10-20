@@ -8,7 +8,7 @@ ScriptPath="$( cd "$(dirname "$0")" ; pwd -P )"
 Root="$( cd "$ScriptPath/.." ; pwd -P )"
 WorkspaceRoot="$( cd "$Root/.." ; pwd -P )"
 
-Version=$(grep -E "__version__.*\".*\"" "$Root/manuskript/version.py" | cut -d\" -f2)
+Version=$(grep -E "__version__.*\".*\"" "$Root/moduskript/version.py" | cut -d\" -f2)
 AppVersion=${1:-$Version}
 PkgVersion="${AppVersion}"
 
@@ -28,6 +28,10 @@ rsync -a \
   --exclude=rpmbuild \
   --exclude=snap \
   --exclude=package \
+  --exclude=venv \
+  --exclude=screens \
+  --exclude=.cortexkit \
+  --exclude=.hypothesis \
   --exclude=__pycache__ \
   --exclude=.pytest_cache \
   --exclude=.github \
@@ -35,6 +39,7 @@ rsync -a \
   --exclude-from="$Root/.gitignore" \
   "$Root/" "$PkgDir/usr/share/moduskript/"
 
+ln -sf moduskript "$PkgDir/usr/share/moduskript/manuskript"
 ln -sf moduskript "$PkgDir/usr/share/manuskript"
 
 cp "$ScriptPath/create_deb/moduskript" "$PkgDir/usr/bin/moduskript"
@@ -42,9 +47,6 @@ ln -sf moduskript "$PkgDir/usr/bin/manuskript"
 cp "$ScriptPath/create_deb/moduskript.desktop" "$PkgDir/usr/share/applications/moduskript.desktop"
 
 IconSourceDir="$Root/icons/Moduskript"
-if [ ! -d "$IconSourceDir" ]; then
-  IconSourceDir="$Root/icons/Manuskript"
-fi
 for s in 16 32 64 128 256 512; do
   mkdir -p "$PkgDir/usr/share/icons/hicolor/${s}x${s}/apps"
   cp "$IconSourceDir/icon-${s}px.png" "$PkgDir/usr/share/icons/hicolor/${s}x${s}/apps/moduskript.png"

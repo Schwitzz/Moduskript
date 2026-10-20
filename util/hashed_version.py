@@ -27,10 +27,10 @@ def writeVersionPlusHash() -> bool:
     )  # UTF8 decode as it's a UTF8 situation.
 
     
-    version_file = pathlib.Path("./manuskript/version.py").absolute()
+    version_file = pathlib.Path("./moduskript/version.py").absolute()
 
     spec = importlib.util.spec_from_file_location(
-        "manuskript.version", version_file.absolute()
+        "moduskript.version", version_file.absolute()
     )
     temp = importlib.util.module_from_spec(spec)
     sys.modules["module.name"] = temp

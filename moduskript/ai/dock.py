@@ -1,0 +1,724 @@
+# --!-- coding: utf8 --!--
+"""The AI assistant dock (chat panel)."""
+
+import html
+import re
+import time
+
+try:
+    import markdown as _py_markdown
+except ImportError:
+    _py_markdown = None
+
+from PyQt5.QtCore import Qt, QEvent, QTimer, pyqtSignal
+from PyQt5.QtGui import QTextCursor
+from PyQt5.QtWidgets import (QComboBox, QDockWidget, QHBoxLayout, QLabel,
+                             QPushButton, QTextBrowser, QTextEdit,
+                             QVBoxLayout, QWidget)
+
+from moduskript.ai import providers as P
+from moduskript.ai.chats import ChatStore
+from moduskript.ai.config import AISettings, ROLES
+from moduskript.ai.context import assemble, gather, SOURCES
+from moduskript.ai.workers import ChatWorker, ModelsWorker
+from moduskript.functions import writablePath
+from moduskript.ui.modernIcons import icon as modernIcon, pixmap as modernPixmap
+
+RESERVE_TOKENS = 1024   # kept free for the reply (local server only)
+
+
+def markdownToHtml(text):
+    """Convert Markdown text into styled HTML suitable for QTextBrowser."""
+    if not text:
+        return ""
+    if _py_markdown is not None:
+        try:
+            body = _py_markdown.markdown(
+                text,
+                extensions=["fenced_code", "tables", "nl2br", "sane_lists"],
+            )
+            body = re.sub(r"~~([^~\n]+?)~~", r"<s>\1</s>", body)
+            return body
+        except Exception:
+            pass
+    # Fallback regex-based Markdown conversion
+    escaped = html.escape(text)
+    escaped = re.sub(
+        r"```[a-zA-Z0-9_-]*\n([\s\S]*?)```",
+        r"<pre><code>\1</code></pre>",
+        escaped,
+    )
+    escaped = re.sub(r"`([^`\n]+?)`", r"<code>\1</code>", escaped)
+    escaped = re.sub(r"\*\*\*([^*]+?)\*\*\*", r"<strong><em>\1</em></strong>", escaped)
+    escaped = re.sub(r"\*\*([^*]+?)\*\*", r"<strong>\1</strong>", escaped)
+    escaped = re.sub(r"(?<!\*)\*(?!\*)([^*]+?)\*(?!\*)", r"<em>\1</em>", escaped)
+    escaped = re.sub(r"~~([^~\n]+?)~~", r"<s>\1</s>", escaped)
+    lines = escaped.split("\n")
+    out = []
+    for ln in lines:
+        hm = re.match(r"^(#{1,4})\s+(.*)$", ln)
+        if hm:
+            lvl = len(hm.group(1))
+            out.append(f"<h{lvl}>{hm.group(2)}</h{lvl}>")
+        elif re.match(r"^\s*[-*+]\s+", ln):
+            item = re.sub(r"^\s*[-*+]\s+", "", ln)
+            out.append(f"<div>&bull; {item}</div>")
+        elif re.match(r"^\s*(\d+[.)])\s+", ln):
+            out.append(f"<div>{ln.strip()}</div>")
+        elif ln.startswith("&gt; "):
+            out.append(f"<blockquote><em>{ln[5:]}</em></blockquote>")
+        else:
+            out.append(ln + "<br>")
+    return "".join(out)
+
+
+class _SendEdit(QTextEdit):
+    """Enter sends, Shift+Enter inserts a newline."""
+    submit = pyqtSignal()
+
+    def keyPressEvent(self, e):
+        if e.key() in (Qt.Key_Return, Qt.Key_Enter) and \
+                not (e.modifiers() & Qt.ShiftModifier):
+            self.submit.emit()
+            return
+        QTextEdit.keyPressEvent(self, e)
+
+
+def _wideCombo():
+    """Combo whose popup is as wide as its longest item, whatever the
+    dock width is."""
+    c = QComboBox()
+    c.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+    c.setMinimumContentsLength(8)
+    return c
+
+
+def _fitPopup(combo):
+    fm = combo.fontMetrics()
+    w = max([fm.horizontalAdvance(combo.itemText(i)) for i in range(combo.count())] + [60])
+    combo.view().setMinimumWidth(w + 40)
+
+
+class AIDock(QDockWidget):
+
+    def __init__(self, parent):
+        QDockWidget.__init__(self, parent)
+        self.setObjectName("dckAI")
+        self.setWindowTitle(self.tr("AI Assistant"))
+        self.mw = parent
+        self.store = ChatStore(writablePath("ai_chats"))
+        self.chat = self._blankChat()
+        self.worker = None
+        self.modelsWorker = None
+        self._activeWorkers = set()
+        self._tick = QTimer(self)
+        self._tick.timeout.connect(self._updateStatus)
+        self._streamText = ""
+        self._streamAgent = ""
+        self._pending = None          # (prompt) while a reply is streaming
+        self._extraNotice = ""
+        self._t0 = self._tFirst = 0.0
+        self._inTok = self._outTok = 0
+        self._loading = False
+        self._buildUi()
+        self._loadSettings()
+        self.refreshChatList()
+
+    # ------------------------------------------------------------ UI
+    def _buildUi(self):
+        # Hide the native QDockWidget titlebar so there is no redundant 'X' close button
+        # or tiny native float target; we provide a clean icon-driven header inside.
+        self.setTitleBarWidget(QWidget(self))
+
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setContentsMargins(6, 6, 6, 6)
+        v.setSpacing(6)
+
+        # Row 1: Chat selector + Icon buttons (New, Delete, Dock/Undock)
+        row = QHBoxLayout()
+        row.setSpacing(4)
+        lbl_chat_icon = QLabel()
+        lbl_chat_icon.setPixmap(modernPixmap("sparkles", 16, accent=True))
+        lbl_chat_icon.setToolTip(self.tr("Recent Chats"))
+        row.addWidget(lbl_chat_icon)
+
+        self.cmbChats = _wideCombo()
+        self.cmbChats.setToolTip(self.tr("Select chat conversation"))
+
+        self.btnNew = QPushButton()
+        self.btnNew.setIcon(modernIcon("plus", 16))
+        self.btnNew.setFixedSize(30, 30)
+        self.btnNew.setToolTip(self.tr("New chat"))
+
+        self.btnDel = QPushButton()
+        self.btnDel.setIcon(modernIcon("trash", 16))
+        self.btnDel.setFixedSize(30, 30)
+        self.btnDel.setToolTip(self.tr("Delete current chat"))
+
+        self.btnDock = QPushButton()
+        self.btnDock.setFixedSize(30, 30)
+        self.btnDock.setToolTip(self.tr("Dock or undock the AI Assistant panel"))
+
+        row.addWidget(self.cmbChats, 1)
+        row.addWidget(self.btnNew)
+        row.addWidget(self.btnDel)
+        row.addWidget(self.btnDock)
+        v.addLayout(row)
+
+        # Row 2: Provider & Role with icons instead of text labels
+        row = QHBoxLayout()
+        row.setSpacing(4)
+        lbl_prov = QLabel()
+        lbl_prov.setPixmap(modernPixmap("server", 15))
+        lbl_prov.setToolTip(self.tr("AI Provider"))
+        self.cmbProvider = _wideCombo()
+        self.cmbProvider.addItems(P.PROVIDERS)
+        self.cmbProvider.setToolTip(self.tr("AI Provider"))
+
+        lbl_role = QLabel()
+        lbl_role.setPixmap(modernPixmap("user-check", 15))
+        lbl_role.setToolTip(self.tr("AI Role Persona"))
+        self.cmbRole = _wideCombo()
+        self.cmbRole.addItems(ROLES)
+        self.cmbRole.setToolTip(self.tr("AI Role Persona"))
+
+        row.addWidget(lbl_prov)
+        row.addWidget(self.cmbProvider, 1)
+        row.addWidget(lbl_role)
+        row.addWidget(self.cmbRole, 1)
+        v.addLayout(row)
+
+        # Row 3: Model selector + Refresh icon button
+        row = QHBoxLayout()
+        row.setSpacing(4)
+        lbl_model = QLabel()
+        lbl_model.setPixmap(modernPixmap("cpu", 15))
+        lbl_model.setToolTip(self.tr("Model"))
+        self.cmbModel = _wideCombo()
+        self.cmbModel.setEditable(True)
+        self.cmbModel.setToolTip(self.tr("Active LLM Model"))
+        self.btnRefresh = QPushButton()
+        self.btnRefresh.setIcon(modernIcon("refresh", 15))
+        self.btnRefresh.setFixedSize(30, 30)
+        self.btnRefresh.setToolTip(self.tr("Refresh model list"))
+        row.addWidget(lbl_model)
+        row.addWidget(self.cmbModel, 1)
+        row.addWidget(self.btnRefresh)
+        v.addLayout(row)
+
+        self.view = QTextBrowser()
+        self.view.setOpenExternalLinks(True)
+        self.view.document().setDefaultStyleSheet(
+            "p { margin: 4px 0; } "
+            "h1 { font-size: 16pt; font-weight: bold; margin: 8px 0 4px 0; } "
+            "h2 { font-size: 14pt; font-weight: bold; margin: 7px 0 4px 0; } "
+            "h3 { font-size: 12pt; font-weight: bold; margin: 6px 0 3px 0; } "
+            "h4 { font-size: 11pt; font-weight: bold; margin: 5px 0 2px 0; } "
+            "ul, ol { margin: 4px 0 4px 18px; } "
+            "li { margin: 2px 0; } "
+            "code { font-family: monospace; } "
+            "pre { font-family: monospace; margin: 6px 0; padding: 6px; } "
+            "blockquote { margin: 4px 0 4px 12px; font-style: italic; }"
+        )
+        v.addWidget(self.view, 1)
+
+        # Status line sits directly under the chat view.
+        row = QHBoxLayout()
+        self.lblStatus = QLabel("")
+        self.lblStatus.setWordWrap(True)
+        self.btnCancel = QPushButton()
+        self.btnCancel.setIcon(modernIcon("stop", 14))
+        self.btnCancel.setText(self.tr("Stop"))
+        self.btnCancel.setToolTip(self.tr("Cancel generation"))
+        self.btnCancel.setVisible(False)
+        row.addWidget(self.lblStatus, 1)
+        row.addWidget(self.btnCancel)
+        v.addLayout(row)
+
+        # Input row with Send icon button
+        inp_row = QHBoxLayout()
+        inp_row.setSpacing(4)
+        self.txtInput = _SendEdit()
+        self.txtInput.setFixedHeight(74)
+        self.txtInput.setPlaceholderText(
+            self.tr("Ask the AI... (Enter to send, Shift+Enter for a new line)"))
+        self.btnSend = QPushButton()
+        self.btnSend.setIcon(modernIcon("send", 16, accent=True))
+        self.btnSend.setFixedSize(34, 74)
+        self.btnSend.setToolTip(self.tr("Send message (Enter)"))
+        inp_row.addWidget(self.txtInput, 1)
+        inp_row.addWidget(self.btnSend)
+        v.addLayout(inp_row)
+        self.setWidget(w)
+
+        self.btnNew.clicked.connect(self.newChat)
+        self.btnDel.clicked.connect(self.deleteChat)
+        self.btnDock.clicked.connect(self.toggleFloating)
+        self.topLevelChanged.connect(self._updateDockButton)
+        self.btnCancel.clicked.connect(self.cancel)
+        self.btnRefresh.clicked.connect(self.refreshModels)
+        self.btnSend.clicked.connect(self.send)
+        self.txtInput.submit.connect(self.send)
+        self.cmbChats.activated.connect(self._chatPicked)
+        self.cmbProvider.activated.connect(self._providerPicked)
+        self.cmbRole.activated.connect(self._rolePicked)
+        self.cmbModel.activated.connect(self._modelPicked)
+        self.cmbModel.lineEdit().editingFinished.connect(self._modelPicked)
+        self._updateDockButton(self.isFloating())
+
+    def toggleFloating(self):
+        """Toggle between docked and floating state, re-attaching to the right dock area when docked."""
+        want_floating = not self.isFloating()
+        self.setFloating(want_floating)
+        if not want_floating and self.mw is not None:
+            self.mw.addDockWidget(Qt.RightDockWidgetArea, self)
+            self.show()
+        self._updateDockButton(self.isFloating())
+
+    def _updateDockButton(self, is_floating=False):
+        if is_floating:
+            self.btnDock.setIcon(modernIcon("dock", 16, accent=True))
+            self.btnDock.setProperty("dockState", "dock")
+            self.btnDock.setToolTip(self.tr("Re-dock AI Assistant into main window"))
+        else:
+            self.btnDock.setIcon(modernIcon("undock", 16))
+            self.btnDock.setProperty("dockState", "undock")
+            self.btnDock.setToolTip(self.tr("Detach AI Assistant into a floating window"))
+
+    # ------------------------------------------------------ settings sync
+    @staticmethod
+    def _blankChat():
+        return {"id": None, "title": "", "project": "", "messages": []}
+
+    def _project(self):
+        return getattr(self.mw, "currentProject", None) or ""
+
+    def _loadSettings(self):
+        """Make the widgets show what Preferences/QSettings currently hold."""
+        prov = AISettings.provider()
+        self.cmbProvider.setCurrentText(prov)
+        self.cmbRole.setCurrentText(AISettings.role())
+        self._fillModels(AISettings.cachedModels(prov), AISettings.model(prov))
+
+    def syncFromSettings(self):
+        if self.worker is None:
+            self._loadSettings()
+
+    def showEvent(self, e):
+        QDockWidget.showEvent(self, e)
+        self.syncFromSettings()
+
+    def _fillModels(self, names, current):
+        self.cmbModel.blockSignals(True)
+        self.cmbModel.clear()
+        items = list(names)
+        if current and current not in items:
+            items.insert(0, current)
+        self.cmbModel.addItems(items)
+        self.cmbModel.setCurrentText(current or "")
+        _fitPopup(self.cmbModel)
+        self.cmbModel.blockSignals(False)
+
+    def _providerPicked(self, _i=None):
+        prov = self.cmbProvider.currentText()
+        AISettings.setProvider(prov)
+        self._fillModels(AISettings.cachedModels(prov), AISettings.model(prov))
+        self.refreshModels()
+
+    def _rolePicked(self, _i=None):
+        AISettings.setRole(self.cmbRole.currentText())
+
+    def _modelPicked(self, _i=None):
+        AISettings.setModel(self.cmbProvider.currentText(),
+                            self.cmbModel.currentText())
+
+    def _isWorkerRunning(self, w):
+        if w is None:
+            return False
+        try:
+            return bool(w.isRunning())
+        except RuntimeError:
+            return False
+
+    def _retireWorker(self, w):
+        """Safely retire a finished QThread worker without destroying a running thread."""
+        if self.modelsWorker is w:
+            self.modelsWorker = None
+        if self.worker is w:
+            self.worker = None
+        QTimer.singleShot(200, lambda worker=w: self._cleanupWorker(worker))
+
+    def _cleanupWorker(self, w):
+        if self._isWorkerRunning(w):
+            QTimer.singleShot(200, lambda worker=w: self._cleanupWorker(worker))
+            return
+        self._activeWorkers.discard(w)
+        try:
+            w.deleteLater()
+        except RuntimeError:
+            pass
+
+    def refreshModels(self):
+        prov = self.cmbProvider.currentText()
+        if self._isWorkerRunning(self.modelsWorker):
+            try:
+                self.modelsWorker.done.disconnect()
+                self.modelsWorker.failed.disconnect()
+            except Exception:
+                pass
+        self.lblStatus.setText(self.tr("Fetching models..."))
+        mw = ModelsWorker(
+            prov, AISettings.endpoint(), AISettings.apiKey(prov), None)
+        self._activeWorkers.add(mw)
+        self.modelsWorker = mw
+        mw.done.connect(self._modelsDone)
+        mw.failed.connect(self._modelsFailed)
+        mw.finished.connect(lambda w=mw: self._retireWorker(w))
+        mw.start()
+
+    def _modelsDone(self, prov, names):
+        try:
+            if prov != self.cmbProvider.currentText():
+                return   # user switched provider meanwhile
+            AISettings.setCachedModels(prov, names)
+            self._fillModels(names, self.cmbModel.currentText())
+            self.lblStatus.setText(self.tr("%d models found") % len(names))
+        except RuntimeError:
+            pass
+
+    def _modelsFailed(self, prov, msg):
+        try:
+            if prov == self.cmbProvider.currentText():
+                self.lblStatus.setText(self.tr("Model list failed: ") + msg)
+        except RuntimeError:
+            pass
+
+    # ------------------------------------------------------------ chats
+    def refreshChatList(self):
+        chats = self.store.list(self._project())
+        self.cmbChats.clear()
+        if self.chat["id"] is None:
+            self.cmbChats.addItem(self.tr("-- new chat --"), None)
+        for c in chats:
+            self.cmbChats.addItem(c.get("title", c["id"]), c["id"])
+        for i in range(self.cmbChats.count()):
+            if self.cmbChats.itemData(i) == self.chat["id"]:
+                self.cmbChats.setCurrentIndex(i)
+        _fitPopup(self.cmbChats)
+
+    def _detachActiveChatWorker(self):
+        """Cancel and disconnect the current ChatWorker so it cannot touch UI state."""
+        w = self.worker
+        if w is None:
+            return
+        self.worker = None
+        self._tick.stop()
+        self.btnCancel.setVisible(False)
+        self.cmbProvider.setEnabled(True)
+        for sig in (w.chunk, w.thinking, w.usage, w.failed, w.completed):
+            try:
+                sig.disconnect()
+            except Exception:
+                pass
+        w.cancel()
+
+    def newChat(self):
+        if self.worker is not None:
+            self._detachActiveChatWorker()
+        self._pending = None
+        self._streamText = ""
+        self._extraNotice = ""
+        self.chat = self._blankChat()
+        self.view.clear()
+        self.lblStatus.setText("")
+        self.refreshChatList()
+
+    def _chatPicked(self, i):
+        cid = self.cmbChats.itemData(i)
+        if cid is None or cid == self.chat["id"] or self.worker is not None:
+            return
+        chat = self.store.load(cid)
+        if chat:
+            self._extraNotice = ""
+            self.chat = chat
+            self.renderAll()
+
+    def deleteChat(self):
+        if self.chat["id"]:
+            self.store.delete(self.chat["id"])
+        self.newChat()
+
+    def _formatMessageBlock(self, agent, content):
+        label = self.tr("You") if agent is None else self.tr("%s says") % agent
+        color = self._labelColour(agent is None)
+        header = '<div style="margin-top:8px; margin-bottom:2px;"><b style="color:%s">%s:</b></div>' % (
+            color,
+            html.escape(label),
+        )
+        body = markdownToHtml(content or "")
+        return header + '<div style="margin-bottom:6px;">' + body + "</div>"
+
+    def renderAll(self):
+        blocks = []
+        for m in self.chat["messages"]:
+            agent = m.get("agent", "AI") if m["role"] == "assistant" else None
+            blocks.append(self._formatMessageBlock(agent, m.get("content", "")))
+        if self._pending is not None:
+            blocks.append(self._formatMessageBlock(None, self._pending))
+            blocks.append(self._formatMessageBlock(self._streamAgent or "AI", self._streamText))
+        if self._extraNotice:
+            blocks.append(self._extraNotice)
+        if blocks:
+            self.view.setHtml("".join(blocks))
+        else:
+            self.view.clear()
+        self.view.moveCursor(QTextCursor.End)
+        sb = self.view.verticalScrollBar()
+        if sb is not None:
+            sb.setValue(sb.maximum())
+
+    @staticmethod
+    def _labelColour(isUser):
+        """Accent for the user, success colour for the AI (scheme-aware)."""
+        try:
+            from moduskript.appearance.config import Appearance
+            s, d = Appearance.colours()
+            if s is not None:
+                return d["accent"] if isUser else s.success
+        except Exception:
+            pass
+        return "#4a90d9" if isUser else "#2e9e5b"
+
+    def _appendHeader(self, agent):
+        """Start a new message block. agent=None means the user."""
+        self.view.moveCursor(QTextCursor.End)
+        label = self.tr("You") if agent is None else self.tr("%s says") % agent
+        color = self._labelColour(agent is None)
+        if not self.view.document().isEmpty():
+            self.view.insertHtml("<br><br>")
+        self.view.insertHtml('<b style="color:%s">%s:</b>&nbsp;' % (color, html.escape(label)))
+
+    # ------------------------------------------------------------ sending
+    def _systemPrompt(self, prov, role):
+        base = AISettings.prompt(role)
+        flags = {k: AISettings.ctxFlag(k) for k, _l, _p in SOURCES}
+        if prov == P.LOCAL:
+            budget = AISettings.contextSize() - RESERVE_TOKENS - P.estimateTokens(base)
+            budget -= sum(P.estimateTokens(m["content"]) for m in self.chat["messages"])
+            budget = max(budget, 256)
+        else:
+            budget = 100000   # cloud models: generous fixed cap, provider limits apply
+        try:
+            ctx = assemble(gather(self.mw, flags), budget)
+        except Exception as e:   # never block chatting on a context problem
+            ctx = ""
+            self.lblStatus.setText(self.tr("Context unavailable: ") + str(e))
+        if ctx:
+            return (
+                base
+                + "\n\nThe author is working on this project. Each line of the scene text "
+                "is prefixed with its 1-based line number (e.g. '12: ...'). Reference these "
+                "line numbers (such as 'Line 12' or 'Lines 15-18') when suggesting edits or "
+                "discussing specific passages. Use the following material as context:\n\n"
+                + ctx
+            )
+        return base
+
+    def send(self):
+        prompt = self.txtInput.toPlainText().strip()
+        if not prompt or self.worker is not None:
+            return
+        prov = self.cmbProvider.currentText()
+        model = self.cmbModel.currentText().strip()
+        role = self.cmbRole.currentText()
+        key = AISettings.apiKey(prov)
+        if not model:
+            self.lblStatus.setText(self.tr("Choose a model first (use the refresh button)."))
+            return
+        if prov != P.LOCAL and not key:
+            self.lblStatus.setText(self.tr("No API key set for %s (Settings > AI).") % prov)
+            return
+        self._modelPicked()
+        AISettings.setRole(role)
+
+        history = [{"role": m["role"], "content": m["content"]}
+                   for m in self.chat["messages"]]
+        history.append({"role": "user", "content": prompt})
+        req = {
+            "provider": prov, "endpoint": AISettings.endpoint(), "apiKey": key,
+            "model": model, "system": self._systemPrompt(prov, role),
+            "history": history,
+            "temperature": AISettings.temperature() if prov == P.LOCAL else None,
+            "thinking": AISettings.thinking() if prov == P.LOCAL else "Off",
+        }
+        self._pending = prompt
+        self._streamAgent = role
+        self._streamText = ""
+        self._extraNotice = ""
+        self._inTok = self._outTok = 0
+        self._t0 = time.time()
+        self._tFirst = 0.0
+        self.txtInput.clear()
+        self.renderAll()
+
+        w = ChatWorker(req, None)
+        self._activeWorkers.add(w)
+        self.worker = w
+        w.chunk.connect(self._onChunk)
+        w.thinking.connect(self._onThinking)
+        w.usage.connect(self._onUsage)
+        w.failed.connect(self._onFailed)
+        w.completed.connect(self._onCompleted)
+        w.finished.connect(lambda worker=w: self._onWorkerFinished(worker))
+        self.btnCancel.setVisible(True)
+        self.cmbProvider.setEnabled(False)
+        self._tick.start(500)
+        self._updateStatus()
+        w.start()
+
+    def _updateStatus(self):
+        try:
+            if self.worker is None:
+                return
+            el = time.time() - self._t0
+            if not self._streamText:
+                self.lblStatus.setText(self.tr("Thinking... %ds") % int(el))
+                return
+            out = self._outTok or P.estimateTokens(self._streamText)
+            span = max(time.time() - self._tFirst, 0.001)
+            self.lblStatus.setText(self.tr("Generating...  In: %d | Out: %d | %.1f t/s")
+                                   % (self._inTok, out, out / span))
+        except RuntimeError:
+            pass
+
+    def _onChunk(self, text):
+        try:
+            if self.sender() is not None and self.sender() is not self.worker:
+                return
+            if not self._tFirst:
+                self._tFirst = time.time()
+            self._streamText += text
+            self.renderAll()
+        except RuntimeError:
+            pass
+
+    def _onThinking(self):
+        pass   # status line already shows "Thinking... Ns"
+
+    def _onUsage(self, inTok, outTok):
+        if self.sender() is not None and self.sender() is not self.worker:
+            return
+        self._inTok, self._outTok = inTok, outTok
+
+    def _onFailed(self, msg):
+        try:
+            if self.sender() is not None and self.sender() is not self.worker:
+                return
+            self._failed = msg
+            self._extraNotice = '<div style="color:#d9534f">%s</div>' % html.escape(
+                self.tr("Error: ") + msg
+            )
+            if self._pending:
+                self.txtInput.setPlainText(self._pending)
+                self._pending = None
+            self._streamText = ""
+            self.renderAll()
+        except RuntimeError:
+            pass
+
+    def _onCompleted(self, cancelled):
+        try:
+            if self.sender() is not None and self.sender() is not self.worker:
+                return
+            if cancelled:
+                self._extraNotice = '<div><i>%s</i></div>' % html.escape(
+                    self.tr("[Generation cancelled]")
+                )
+            if self._pending is not None and (self._streamText or not cancelled):
+                self.chat["messages"].append({"role": "user", "content": self._pending})
+                self.chat["messages"].append({"role": "assistant", "agent": self._streamAgent,
+                                              "content": self._streamText})
+                if not self.chat["id"]:
+                    self.chat["id"] = self.store.newId()
+                    self.chat["title"] = self.store.makeTitle(self._streamAgent, self._pending)
+                    self.chat["project"] = self._project()
+                self.store.save(self.chat)
+            elif self._pending and cancelled:
+                self.txtInput.setPlainText(self._pending)
+            self._pending = None
+            self.renderAll()
+        except RuntimeError:
+            pass
+
+    def _onWorkerFinished(self, worker):
+        was_current = (worker is self.worker)
+        self._retireWorker(worker)
+        if was_current:
+            self._onFinished()
+
+    def _onFinished(self):
+        try:
+            self._tick.stop()
+            if self.worker is not None:
+                self._retireWorker(self.worker)
+                self.worker = None
+            self.btnCancel.setVisible(False)
+            self.cmbProvider.setEnabled(True)
+            if self._streamText:
+                out = self._outTok or P.estimateTokens(self._streamText)
+                span = max(time.time() - (self._tFirst or self._t0), 0.001)
+                self.lblStatus.setText(self.tr("Done.  In: %d | Out: %d | %.1f t/s")
+                                       % (self._inTok, out, out / span))
+            self.refreshChatList()
+        except RuntimeError:
+            pass
+
+    def cancel(self):
+        if self.worker is None:
+            return
+        self._detachActiveChatWorker()
+        try:
+            self._extraNotice = '<div><i>%s</i></div>' % html.escape(
+                self.tr("[Generation cancelled]")
+            )
+            self.lblStatus.setText(self.tr("Cancelled."))
+            if self._pending is not None and self._streamText:
+                self.chat["messages"].append({"role": "user", "content": self._pending})
+                self.chat["messages"].append({
+                    "role": "assistant",
+                    "agent": self._streamAgent,
+                    "content": self._streamText,
+                })
+                if not self.chat["id"]:
+                    self.chat["id"] = self.store.newId()
+                    self.chat["title"] = self.store.makeTitle(self._streamAgent, self._pending)
+                    self.chat["project"] = self._project()
+                self.store.save(self.chat)
+                self.refreshChatList()
+            elif self._pending:
+                self.txtInput.setPlainText(self._pending)
+            self._pending = None
+            self.renderAll()
+        except RuntimeError:
+            pass
+
+    def shutdown(self):
+        """Called from MainWindow.closeEvent."""
+        self._tick.stop()
+        all_workers = set(self._activeWorkers)
+        if self.worker is not None:
+            all_workers.add(self.worker)
+        if self.modelsWorker is not None:
+            all_workers.add(self.modelsWorker)
+        for w in all_workers:
+            if self._isWorkerRunning(w):
+                if hasattr(w, "cancel"):
+                    try:
+                        w.cancel()
+                    except Exception:
+                        pass
+                try:
+                    w.wait(3000)
+                except RuntimeError:
+                    pass

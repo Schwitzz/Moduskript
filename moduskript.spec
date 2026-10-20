@@ -50,7 +50,7 @@ exe = EXE(
     strip=False,
     upx=True,
     console=True,
-    icon=os.path.join(SPECPATH, "icons/Moduskript/manuskript.ico"),
+    icon=os.path.join(SPECPATH, "icons/Moduskript/moduskript.ico"),
 )
 
 wexe = EXE(
@@ -62,7 +62,7 @@ wexe = EXE(
     strip=False,
     upx=True,
     console=False,
-    icon=os.path.join(SPECPATH, "icons/Moduskript/manuskript.ico"),
+    icon=os.path.join(SPECPATH, "icons/Moduskript/moduskript.ico"),
 )
 
 coll = COLLECT(
@@ -72,7 +72,7 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name="moduskript.app",
-    icon=os.path.join(SPECPATH, "icons/Moduskript/Manuskript.icns"),
+    icon=os.path.join(SPECPATH, "icons/Moduskript/Moduskript.icns"),
     bundle_identifier="ch.theologeek.manuskript",
     version=version,
     info_plist={

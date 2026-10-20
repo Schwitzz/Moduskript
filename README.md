@@ -63,7 +63,7 @@ A pre-compiled `.deb` package is located in the `releases/` folder:
 
 ```bash
 sudo apt update
-sudo apt install ./releases/moduskript-0.01.1.deb
+sudo apt install ./releases/moduskript-0.01.2.deb
 ```
 
 Once installed, launch **Moduskript** from your desktop application launcher or run:
@@ -100,7 +100,7 @@ To rebuild the `.deb` package into `releases/`:
 
 ## Running Automated Tests
 ```bash
-QT_QPA_PLATFORM=offscreen pytest manuskript/tests/
+QT_QPA_PLATFORM=offscreen pytest moduskript/tests/
 ```
 
 ---
